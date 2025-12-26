@@ -1,5 +1,5 @@
 // SRDlg.cpp : implementation file
-//v1.5 Layout Refinement
+//v1.2 Layout Refinement
 
 #include "pch.h"
 #include "framework.h"
