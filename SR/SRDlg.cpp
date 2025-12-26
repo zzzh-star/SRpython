@@ -1,5 +1,5 @@
 // SRDlg.cpp : implementation file
-//v1.9 Layout Polish: Aspect Ratio Camera, Adaptive Window Size, Better Labels
+//v1.4 Layout Polish: Aspect Ratio Camera, Adaptive Window Size, Better Labels
 
 #include "pch.h"
 #include "framework.h"
