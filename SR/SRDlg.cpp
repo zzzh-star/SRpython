@@ -1,5 +1,5 @@
 // SRDlg.cpp : implementation file
-//v1.4 Layout Polish: Aspect Ratio Camera, Adaptive Window Size, Better Labels
+//v1.5 Layout Refinement
 
 #include "pch.h"
 #include "framework.h"
@@ -63,7 +63,7 @@ void DrawGradient(CDC* pDC, CRect rect, COLORREF cTop, COLORREF cBottom)
 	}
 }
 
-// Helper to draw OpenCV Mat to CStatic with Aspect Ratio Preservation (Letterboxing)
+// Helper to draw OpenCV Mat to CStatic
 void DrawMatToPic(cv::Mat& img, CStatic& pic)
 {
 	if (img.empty()) return;
@@ -74,47 +74,24 @@ void DrawMatToPic(cv::Mat& img, CStatic& pic)
 
 	if (rect.IsRectEmpty()) return;
 
-	// Fill background with black (letterboxing)
+	cv::Mat resized;
+	cv::resize(img, resized, cv::Size(rect.Width(), rect.Height()));
+
+	BITMAPINFO bitInfo;
+	memset(&bitInfo, 0, sizeof(BITMAPINFO));
+	bitInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+	bitInfo.bmiHeader.biWidth = resized.cols;
+	bitInfo.bmiHeader.biHeight = -resized.rows; 
+	bitInfo.bmiHeader.biPlanes = 1;
+	bitInfo.bmiHeader.biBitCount = 24;
+	bitInfo.bmiHeader.biCompression = BI_RGB;
+
 	CDC* pDC = pic.GetDC();
 	if (pDC)
 	{
-		pDC->FillSolidRect(&rect, RGB(0, 0, 0));
-		
-		// Calculate aspect-preserving dimensions
-		double srcAspect = (double)img.cols / img.rows;
-		double dstAspect = (double)rect.Width() / rect.Height();
-		
-		int dstW = rect.Width();
-		int dstH = rect.Height();
-		int dstX = 0;
-		int dstY = 0;
-		
-		if (srcAspect > dstAspect) {
-			// Source is wider than destination: fit width
-			dstH = (int)(dstW / srcAspect);
-			dstY = (rect.Height() - dstH) / 2;
-		} else {
-			// Source is taller than destination: fit height
-			dstW = (int)(dstH * srcAspect);
-			dstX = (rect.Width() - dstW) / 2;
-		}
-
-		cv::Mat resized;
-		cv::resize(img, resized, cv::Size(dstW, dstH));
-
-		BITMAPINFO bitInfo;
-		memset(&bitInfo, 0, sizeof(BITMAPINFO));
-		bitInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-		bitInfo.bmiHeader.biWidth = resized.cols;
-		bitInfo.bmiHeader.biHeight = -resized.rows; 
-		bitInfo.bmiHeader.biPlanes = 1;
-		bitInfo.bmiHeader.biBitCount = 24;
-		bitInfo.bmiHeader.biCompression = BI_RGB;
-
-		::StretchDIBits(pDC->GetSafeHdc(), dstX, dstY, dstW, dstH,
+		::StretchDIBits(pDC->GetSafeHdc(), 0, 0, rect.Width(), rect.Height(),
 			0, 0, resized.cols, resized.rows,
 			resized.data, &bitInfo, DIB_RGB_COLORS, SRCCOPY);
-		
 		pic.ReleaseDC(pDC);
 	}
 }
@@ -157,10 +134,10 @@ CSRDlg::CSRDlg(CWnd* pParent /*=nullptr*/)
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 	m_pMotorManager = new MotorManager();
 
-	// --- Theme Color Initialization (Refined Soft Light Theme) ---
+	// --- Theme Color Initialization ---
 
-	// App BG (soft light gray)
-	m_clrAppBg      = RGB(235, 239, 244);   // #EBEFF4
+	// App BG
+	m_clrAppBg     = RGB(238, 242, 246);
 
 	// Header
 	m_clrHdrTop    = RGB(16, 45, 70);
@@ -168,18 +145,18 @@ CSRDlg::CSRDlg(CWnd* pParent /*=nullptr*/)
 	m_clrHdrText   = RGB(255, 255, 255);
 	m_clrHdrLine   = RGB(0, 188, 212);
 
-	// System Control (Blue-Grey Series)
-	m_clrSysHdr     = RGB(35, 45, 55);   // Softer Top
-	m_clrSysBody    = RGB(52, 62, 72);   // Deep Gray Body
-	m_clrSysBorder  = RGB(80, 92, 104);  // Muted Border
-	m_clrSysText    = RGB(235, 240, 245);
+	// Sidebar
+	m_clrSidebarBg     = RGB(43, 56, 66);
+	m_clrSideCardTitle = RGB(25, 30, 34);
+	m_clrSideCardBg    = RGB(55, 67, 76);
+	m_clrSideCardBorder= RGB(70, 85, 95);
+	m_clrSidebarText   = RGB(235, 240, 245);
 
-	// Main Cards (White + Shadow)
-	m_clrCardBg     = RGB(255, 255, 255);   // Pure White
-	m_clrCardBorder = RGB(214, 222, 231);   // Faint Border
-	m_clrShadow     = RGB(200, 208, 218);   // Soft Shadow
-	m_clrMainText   = RGB(30, 35, 40);
-	m_clrSubText    = RGB(120, 130, 140);
+	// Main Cards
+	m_clrMainCardBg    = RGB(255, 255, 255);
+	m_clrMainCardBorder= RGB(230, 235, 242); // Lighter border
+	m_clrMainText      = RGB(35, 40, 45);
+	m_clrSubText       = RGB(110, 120, 130);
 
 	// Status
 	m_clrOkGreen    = RGB(46, 204, 113);
@@ -187,7 +164,8 @@ CSRDlg::CSRDlg(CWnd* pParent /*=nullptr*/)
 
 	// Create Brushes
 	m_brushAppBg.CreateSolidBrush(m_clrAppBg);
-	m_brushCardBg.CreateSolidBrush(m_clrCardBg);
+	m_brushSidebarBg.CreateSolidBrush(m_clrSidebarBg);
+	m_brushMainCardBg.CreateSolidBrush(m_clrMainCardBg);
 
 	px = py = pz = 0.0;
 	fx = fy = fz = 0.0;
@@ -213,7 +191,8 @@ CSRDlg::~CSRDlg()
 	}
 
 	m_brushAppBg.DeleteObject();
-	m_brushCardBg.DeleteObject();
+	m_brushSidebarBg.DeleteObject();
+	m_brushMainCardBg.DeleteObject();
 }
 
 void CSRDlg::DoDataExchange(CDataExchange* pDX)
@@ -256,12 +235,10 @@ BOOL CSRDlg::OnInitDialog()
 	// Set Window Text
 	SetWindowText(_T("消化道手术机器人控制系统"));
 
-	// Initialize Fonts (Larger Sizes)
-	m_fontTitle.CreateFont(26, 0, 0, 0, FW_BOLD, FALSE, FALSE, 0, ANSI_CHARSET, 
-		OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, _T("Segoe UI"));
-	
-	m_fontMain.CreatePointFont(95, _T("Segoe UI"));                 // 9.5pt
-	m_fontLabel.CreatePointFont(120, _T("Segoe UI Semibold"));      // 12pt Card Titles
+	// Initialize Fonts
+	m_fontTitle.CreateFont(24, 0, 0, 0, FW_BOLD, FALSE, FALSE, 0, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, _T("Segoe UI"));
+	m_fontMain.CreatePointFont(90, _T("Segoe UI"));
+	m_fontLabel.CreatePointFont(90, _T("Segoe UI Semibold"));
 
 	SetFont(&m_fontMain);
 
@@ -326,7 +303,7 @@ BOOL CSRDlg::OnInitDialog()
 		m_ChartCtrl.EnableRefresh(true);
 		m_ChartCtrl.GetTitle()->AddString(_T("")); 
 		m_ChartCtrl.SetBackColor(RGB(255, 255, 255));
-		m_ChartCtrl.SetBorderColor(m_clrCardBorder); 
+		m_ChartCtrl.SetBorderColor(m_clrMainCardBorder); 
 
 		CChartStandardAxis* pBottomAxis = m_ChartCtrl.CreateStandardAxis(CChartCtrl::BottomAxis);
 		pBottomAxis->SetMinMax(0, 100);
@@ -354,22 +331,8 @@ BOOL CSRDlg::OnInitDialog()
 		m_pLineSeries[2]->SetName(_T("Fz"));
 	}
 	
-	// Initial Window Size: smaller and comfortable (do NOT fill the screen)
-	CRect work;
-	SystemParametersInfo(SPI_GETWORKAREA, 0, &work, 0);
-
-	int workW = work.Width();
-	int workH = work.Height();
-
-	// ~70% of work area
-	int targetW = (int)(workW * 0.70);
-	int targetH = (int)(workH * 0.72);
-
-	// caps (prevent too large / too small)
-	targetW = max(980, min(targetW, 1200));
-	targetH = max(660, min(targetH, 820));
-
-	SetWindowPos(NULL, 0, 0, targetW, targetH, SWP_NOMOVE | SWP_NOZORDER);
+	// Initial Window Size (1100x720) and Center
+	SetWindowPos(NULL, 0, 0, 1100, 720, SWP_NOMOVE | SWP_NOZORDER);
 	CenterWindow();
 
 	LayoutUI();
@@ -417,121 +380,85 @@ void CSRDlg::LayoutUI()
 {
 	CRect clientRect;
 	GetClientRect(&clientRect);
+	
 	if (clientRect.IsRectEmpty()) return;
 
 	int width = clientRect.Width();
 	int height = clientRect.Height();
 	
-	// Calc content area (below header)
-	CRect content = clientRect;
-	content.top += kHeaderHeight;
-	content.DeflateRect(kMargin, kMargin);
-	
-	// --- Height Negotiation ---
-	int minSysH = kTitleH + kPad + 8 * kBtnH + 7 * kBtnGap + kPad; 
-	int minForceH = 200;
-	
-	int availH = content.Height();
-	int forceH = max(minForceH, availH / 3);
-	
-	int topH = availH - (forceH + kGap);
-	if (topH < minSysH) {
-		int shortage = minSysH - topH;
-		forceH = max(minForceH, forceH - shortage);
-		topH = availH - (forceH + kGap);
-	}
-	
-	// --- Bottom Area: Force Chart ---
-	m_rectCardChart.SetRect(content.left, content.top + topH + kGap, content.right, content.bottom);
-	
-	// --- Top Area Split: Left (SysCtrl) vs Right (Camera+Params) ---
-	int sysCtrlWidth = max(280, int(content.Width() * 0.28));
-	
-	m_rectCardSysCtrl.SetRect(content.left, content.top, content.left + sysCtrlWidth, content.top + topH);
-	
-	CRect rightCol = CRect(m_rectCardSysCtrl.right + kGap, content.top, content.right, content.top + topH);
-	
-	// --- Right Col Split: Top (Camera) vs Bottom (Params) ---
-	int minCamH = 240; // keep camera view not too short -> less letterbox bars
-	int camH = max(minCamH, int(rightCol.Height() * 0.40)); // reduce blank space
-	int minParamH = 160;
-	if (rightCol.Height() - camH - kGap < minParamH) {
-		camH = rightCol.Height() - minParamH - kGap;
-	}
-	
-	m_rectCardCamera.SetRect(rightCol.left, rightCol.top, rightCol.right, rightCol.top + camH);
-	
-	CRect paramRow = CRect(rightCol.left, m_rectCardCamera.bottom + kGap, rightCol.right, rightCol.bottom);
-	
-	// --- Param Row Split: Master vs Robot ---
-	int masterW = (paramRow.Width() - kGap) / 2;
-	
-	m_rectCardMaster.SetRect(paramRow.left, paramRow.top, paramRow.left + masterW, paramRow.bottom);
-	m_rectCardRobot.SetRect(m_rectCardMaster.right + kGap, paramRow.top, paramRow.right, paramRow.bottom);
-	
-	// =========================================================================================
-	// Move Controls
-	// =========================================================================================
-	
-	// 1. System Control Card (8 buttons vertically)
-	{
-		int startY = m_rectCardSysCtrl.top + kTitleH + kPad;
-		int btnW = m_rectCardSysCtrl.Width() - 2 * kPad;
-		
-		UINT btnIds[] = { 
-			IDC_BUTTON_STARTM, IDC_BUTTON_SPEEDM, IDC_BUTTON_ZEROM, IDC_BUTTON_SHUTM, 
-			IDC_BUTTON_STARTH, IDC_BUTTON_ZEROH, IDC_BUTTON_SHUTH 
-		};
-		int cy = startY;
-		
-		// Calc exit button pos to ensure no overlap
-		int yExit = m_rectCardSysCtrl.bottom - kPad - kBtnH;
-		int yMax = yExit - kBtnGap; // other buttons must stay above this
+	// Calc Layout Areas
+	m_rectSidebar.SetRect(0, kHeaderHeight, kSidebarWidth, height);
+	m_rectMainArea.SetRect(kSidebarWidth, kHeaderHeight, width, height);
 
-		for(UINT id : btnIds) {
-			if (cy + kBtnH > yMax) break; // prevent overlap with Exit
-			
-			CWnd* p = GetDlgItem(id);
-			if(p) p->SetWindowPos(NULL, m_rectCardSysCtrl.left + kPad, cy, btnW, kBtnH, SWP_NOZORDER);
-			cy += (kBtnH + kBtnGap);
-		}
-		
-		// Exit button pinned at the very bottom
-		CWnd* pExit = GetDlgItem(IDCANCEL);
-		if (pExit) {
-			int x = m_rectCardSysCtrl.left + kPad;
-			pExit->SetWindowPos(NULL, x, yExit, btnW, kBtnH, SWP_NOZORDER);
-		}
+	// --- Sidebar Cards ---
+	int x = kSidebarPad;
+	int y = kHeaderHeight + kCardGap;
+	int cardW = kSidebarWidth - 2 * kSidebarPad;
+	
+	// Motor Card (Height enough for 4 buttons + header)
+	int btnH = 26; 
+	int titleH = 26;
+	int pad = 8;
+	int motorH = titleH + pad + (btnH + pad) * 4 + pad;
+	m_rectCardMotor.SetRect(x, y, x + cardW, y + motorH);
+	
+	// Move Motor Buttons
+	UINT motorBtns[] = { IDC_BUTTON_STARTM, IDC_BUTTON_SPEEDM, IDC_BUTTON_ZEROM, IDC_BUTTON_SHUTM };
+	int cyBtn = m_rectCardMotor.top + titleH + pad;
+	for(UINT id : motorBtns) {
+		CWnd* p = GetDlgItem(id);
+		if(p) p->SetWindowPos(NULL, m_rectCardMotor.left + pad, cyBtn, cardW - 2*pad, btnH, SWP_NOZORDER);
+		cyBtn += btnH + pad;
+	}
+
+	// Haptic Card (Height for 3 buttons + header)
+	y = m_rectCardMotor.bottom + kCardGap;
+	int hapticH = titleH + pad + (btnH + pad) * 3 + pad;
+	m_rectCardHaptic.SetRect(x, y, x + cardW, y + hapticH);
+
+	// Move Haptic Buttons
+	UINT hapticBtns[] = { IDC_BUTTON_STARTH, IDC_BUTTON_ZEROH, IDC_BUTTON_SHUTH };
+	cyBtn = m_rectCardHaptic.top + titleH + pad;
+	for(UINT id : hapticBtns) {
+		CWnd* p = GetDlgItem(id);
+		if(p) p->SetWindowPos(NULL, m_rectCardHaptic.left + pad, cyBtn, cardW - 2*pad, btnH, SWP_NOZORDER);
+		cyBtn += btnH + pad;
 	}
 	
-	// 2. Camera Card (Centered with Aspect Ratio 16:9)
+	// Exit Button
+	CWnd* pExit = GetDlgItem(IDCANCEL);
+	if(pExit) {
+		pExit->SetWindowPos(NULL, kSidebarPad, height - kSidebarPad - btnH, cardW, btnH, SWP_NOZORDER);
+	}
+
+	// --- Main Area Cards ---
+	x = kSidebarWidth + kCardGap;
+	y = kHeaderHeight + kCardGap;
+	int mainW = width - kSidebarWidth - 2 * kCardGap;
+	int rightColW = 280;
+	int camW = mainW - rightColW - kCardGap;
+	
+	// Camera Card (Top Left)
+	int row1H = 260; // Camera height increased slightly
+	m_rectCardCamera.SetRect(x, y, x + camW, y + row1H);
+	
+	// Move Camera
 	if(m_picCamera.GetSafeHwnd()) {
-		CRect area = m_rectCardCamera;
-		area.top += kTitleH;
-		area.DeflateRect(2, 2);
-
-		const double aspect = 16.0 / 9.0;
-		int aw = area.Width();
-		int ah = area.Height();
-
-		int w = aw;
-		int h = (int)std::round(w / aspect);
-		if (h > ah) { h = ah; w = (int)std::round(h * aspect); }
-
-		int x = area.left + (aw - w) / 2;
-		int y = area.top + (ah - h) / 2;
-
-		m_picCamera.SetWindowPos(NULL, x, y, w, h, SWP_NOZORDER);
+		m_picCamera.SetWindowPos(NULL, m_rectCardCamera.left + 2, m_rectCardCamera.top + 2, m_rectCardCamera.Width()-4, m_rectCardCamera.Height()-4, SWP_NOZORDER);
 	}
 	
-	// 3. Master Param Card
+	// Master Param Card (Top Right)
+	m_rectCardMaster.SetRect(x + camW + kCardGap, y, x + camW + kCardGap + rightColW, y + 140);
+	
+	// Move Master Params
 	{
-		int labelW = 110;  // was 70, too small for Chinese labels
+		int labelW = 70;
 		int rowH = 24;
-		int startY = m_rectCardMaster.top + kTitleH + 10;
-		int cxL = m_rectCardMaster.left + kPad;
+		int rowGap = 2; // Reduced gap to fit in card
+		int startY = m_rectCardMaster.top + 38;
+		int cxL = m_rectCardMaster.left + 12;
 		int cxE = cxL + labelW + 10;
-		int cwE = m_rectCardMaster.right - kPad - cxE;
+		int cwE = m_rectCardMaster.right - 12 - cxE;
 		int cy = startY;
 		
 		struct Item { const TCHAR* l; UINT id; };
@@ -546,21 +473,24 @@ void CSRDlg::LayoutUI()
 			CWnd* pL = FindStaticByText(it.l);
 			if(!pL && _tcscmp(it.l, _T("主手编码:"))==0) pL = FindStaticByText(_T("主手编码器:"));
 			
-			if(pL) pL->SetWindowPos(NULL, cxL, cy+2, labelW, 18, SWP_NOZORDER);
+			if(pL) pL->SetWindowPos(NULL, cxL, cy+2, labelW, 16, SWP_NOZORDER);
 			CWnd* pE = GetDlgItem(it.id);
 			if(pE) pE->SetWindowPos(NULL, cxE, cy, cwE, 20, SWP_NOZORDER);
 			cy += rowH;
 		}
 	}
+
+	// Robot Param Card (Middle Right)
+	m_rectCardRobot.SetRect(m_rectCardMaster.left, m_rectCardMaster.bottom + kCardGap, m_rectCardMaster.right, y + row1H);
 	
-	// 4. Robot Param Card
+	// Move Robot Params
 	{
-		int labelW = 110;  // was 70
+		int labelW = 70;
 		int rowH = 24;
-		int startY = m_rectCardRobot.top + kTitleH + 10;
-		int cxL = m_rectCardRobot.left + kPad;
+		int startY = m_rectCardRobot.top + 38;
+		int cxL = m_rectCardRobot.left + 12;
 		int cxE = cxL + labelW + 10;
-		int cwE = m_rectCardRobot.right - kPad - cxE;
+		int cwE = m_rectCardRobot.right - 12 - cxE;
 		int cy = startY;
 		
 		struct Item { const TCHAR* l; UINT id; };
@@ -572,22 +502,28 @@ void CSRDlg::LayoutUI()
 		};
 		for(auto& it : items) {
 			CWnd* pL = FindStaticByText(it.l);
-			if(pL) pL->SetWindowPos(NULL, cxL, cy+2, labelW, 18, SWP_NOZORDER);
+			if(pL) pL->SetWindowPos(NULL, cxL, cy+2, labelW, 16, SWP_NOZORDER);
 			CWnd* pE = GetDlgItem(it.id);
 			if(pE) pE->SetWindowPos(NULL, cxE, cy, cwE, 20, SWP_NOZORDER);
 			cy += rowH;
 		}
 	}
-	
-	// 5. Force Chart Card
+
+	// Chart Card (Bottom Spanning)
+	y = m_rectCardCamera.bottom + kCardGap;
+	int chartH = height - y - kCardGap;
+	if (chartH < 100) chartH = 100;
+	m_rectCardChart.SetRect(x, y, x + mainW, y + chartH);
+
+	// Move Chart (Account for Title)
 	if (m_ChartCtrl.GetSafeHwnd()) {
 		CRect chartArea = m_rectCardChart;
-		chartArea.top += kTitleH;
-		chartArea.DeflateRect(kPad, kPad);
+		chartArea.top += 34;
+		chartArea.DeflateRect(12, 12);
 		m_ChartCtrl.SetWindowPos(NULL, chartArea.left, chartArea.top, chartArea.Width(), chartArea.Height(), SWP_NOZORDER);
 	}
 	
-	Invalidate(); 
+	Invalidate(); // Redraw
 }
 
 void CSRDlg::DrawRoundedRectFillBorder(CDC& dc, CRect rc, int radius, COLORREF fill, COLORREF border)
@@ -601,43 +537,31 @@ void CSRDlg::DrawRoundedRectFillBorder(CDC& dc, CRect rc, int radius, COLORREF f
 	dc.SelectObject(oldBrush);
 }
 
-void CSRDlg::DrawSysControlCard(CDC& dc, CRect rc)
+void CSRDlg::DrawCardWithTitle(CDC& dc, CRect rc, int radius, CString title, COLORREF titleBg, COLORREF bodyBg, COLORREF border, COLORREF titleText)
 {
-	// Shadow
-	CRect shadow = rc;
-	shadow.OffsetRect(0, 4);
-	DrawRoundedRectFillBorder(dc, shadow, kRadius, m_clrShadow, m_clrShadow);
-
-	// D1) Draw Body (Deep Gray Rounded)
-	DrawRoundedRectFillBorder(dc, rc, kRadius, m_clrSysBody, m_clrSysBorder);
+	// 1. Draw Body
+	DrawRoundedRectFillBorder(dc, rc, radius, bodyBg, border);
 	
-	// D2) Draw Header (Deep Black, Top Rounded only)
+	// 2. Draw Title Header
 	CRect rcHeader = rc;
-	rcHeader.bottom = rcHeader.top + kTitleH;
+	rcHeader.bottom = rcHeader.top + 26;
 	
-	CPen pen(PS_SOLID, 1, m_clrSysBorder);
-	CBrush brush(m_clrSysHdr);
-	CPen* oldPen = dc.SelectObject(&pen);
-	CBrush* oldBrush = dc.SelectObject(&brush);
-	dc.RoundRect(rcHeader, CPoint(kRadius, kRadius));
+	// Create Region for Top Round Rect
+	CRgn rgn;
+	rgn.CreateRoundRectRgn(rc.left, rc.top, rc.right, rc.bottom, radius, radius);
 	
-	// Fix bottom corners
-	CRect bottomHalf = rcHeader;
-	bottomHalf.top += kRadius; 
-	dc.FillSolidRect(&bottomHalf, m_clrSysHdr);
+	// Clip to Header area
+	dc.SelectClipRgn(&rgn);
+	dc.FillSolidRect(&rcHeader, titleBg);
 	
-	dc.SelectObject(oldPen);
-	dc.SelectObject(oldBrush);
-	
-	// D3) Draw Title
+	// Draw Title Text
 	dc.SetBkMode(TRANSPARENT);
-	dc.SetTextColor(m_clrSysText);
+	dc.SetTextColor(titleText);
 	dc.SelectObject(&m_fontLabel);
+	rcHeader.left += 10;
+	dc.DrawText(title, &rcHeader, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 	
-	CRect rTitle = rcHeader;
-	rTitle.left += 12;
-	rTitle.top += 7; 
-	dc.DrawText(_T("系统控制"), &rTitle, DT_LEFT | DT_TOP | DT_SINGLELINE);
+	dc.SelectClipRgn(NULL);
 }
 
 void CSRDlg::DrawMainCardTitle(CDC& dc, CRect rc, CString title)
@@ -648,29 +572,8 @@ void CSRDlg::DrawMainCardTitle(CDC& dc, CRect rc, CString title)
 	CRect rTitle = rc;
 	rTitle.top += 10;
 	rTitle.left += 14;
-	rTitle.bottom = rTitle.top + 26; 
+	rTitle.bottom = rTitle.top + 20;
 	dc.DrawText(title, &rTitle, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-}
-
-void CSRDlg::DrawCardWithTitle(CDC& dc, CRect rc, int radius, CString title, COLORREF bg, COLORREF border, COLORREF text)
-{
-	// 1) Shadow
-	CRect shadow = rc;
-	shadow.OffsetRect(0, 4);
-	DrawRoundedRectFillBorder(dc, shadow, radius, m_clrShadow, m_clrShadow);
-
-	// 2) Card
-	DrawRoundedRectFillBorder(dc, rc, radius, bg, border);
-
-	// 3) Title text
-	DrawMainCardTitle(dc, rc, title);
-
-	// 4) Divider line
-	CPen pen(PS_SOLID, 1, RGB(230, 235, 240));
-	CPen* oldPen = dc.SelectObject(&pen);
-	dc.MoveTo(rc.left + 12, rc.top + kTitleH);
-	dc.LineTo(rc.right - 12, rc.top + kTitleH);
-	dc.SelectObject(oldPen);
 }
 
 void CSRDlg::OnPaint()
@@ -700,30 +603,41 @@ void CSRDlg::OnPaint()
 		CRect headerRect = rect;
 		headerRect.bottom = kHeaderHeight;
 		DrawGradient(&dc, headerRect, m_clrHdrTop, m_clrHdrBottom);
+		// Bottom accent line
 		dc.FillSolidRect(0, headerRect.bottom - 2, rect.Width(), 2, m_clrHdrLine);
-		
+		// Title
 		CFont* old = dc.SelectObject(&m_fontTitle);
 		dc.SetBkMode(TRANSPARENT);
 		dc.SetTextColor(m_clrHdrText);
 		dc.DrawText(_T("消化道手术机器人控制系统"), &headerRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 		dc.SelectObject(old);
 
-		// 3. Draw System Control Card (Two-Tone + Shadow)
-		if (!m_rectCardSysCtrl.IsRectEmpty())
-			DrawSysControlCard(dc, m_rectCardSysCtrl);
+		// 3. Sidebar Background (Just fill, no extra shadow)
+		if (!m_rectSidebar.IsRectEmpty()) {
+			dc.FillSolidRect(&m_rectSidebar, m_clrSidebarBg);
+		}
+
+		// 4. Sidebar Cards (Title + Dark Content)
+		if (!m_rectCardMotor.IsRectEmpty())
+			DrawCardWithTitle(dc, m_rectCardMotor, kRadius, _T("Motor Control"), m_clrSideCardTitle, m_clrSideCardBg, m_clrSideCardBorder, m_clrSidebarText);
 		
-		// 4. Draw Main Cards (White + Shadow)
-		if (!m_rectCardCamera.IsRectEmpty())
-			DrawCardWithTitle(dc, m_rectCardCamera, kRadius, _T("Camera View"), m_clrCardBg, m_clrCardBorder, m_clrMainText);
-			
-		if (!m_rectCardMaster.IsRectEmpty())
-			DrawCardWithTitle(dc, m_rectCardMaster, kRadius, _T("Master Param"), m_clrCardBg, m_clrCardBorder, m_clrMainText);
-			
-		if (!m_rectCardRobot.IsRectEmpty())
-			DrawCardWithTitle(dc, m_rectCardRobot, kRadius, _T("Robot Param"), m_clrCardBg, m_clrCardBorder, m_clrMainText);
-			
-		if (!m_rectCardChart.IsRectEmpty())
-			DrawCardWithTitle(dc, m_rectCardChart, kRadius, _T("Force Feedback (N)"), m_clrCardBg, m_clrCardBorder, m_clrMainText);
+		if (!m_rectCardHaptic.IsRectEmpty())
+			DrawCardWithTitle(dc, m_rectCardHaptic, kRadius, _T("Haptic Control"), m_clrSideCardTitle, m_clrSideCardBg, m_clrSideCardBorder, m_clrSidebarText);
+
+		// 5. Main Cards (White)
+		if (!m_rectCardCamera.IsRectEmpty()) DrawRoundedRectFillBorder(dc, m_rectCardCamera, kRadius, m_clrMainCardBg, m_clrMainCardBorder);
+		if (!m_rectCardMaster.IsRectEmpty()) {
+			DrawRoundedRectFillBorder(dc, m_rectCardMaster, kRadius, m_clrMainCardBg, m_clrMainCardBorder);
+			DrawMainCardTitle(dc, m_rectCardMaster, _T("Master Param"));
+		}
+		if (!m_rectCardRobot.IsRectEmpty()) {
+			DrawRoundedRectFillBorder(dc, m_rectCardRobot, kRadius, m_clrMainCardBg, m_clrMainCardBorder);
+			DrawMainCardTitle(dc, m_rectCardRobot, _T("Robot Param"));
+		}
+		if (!m_rectCardChart.IsRectEmpty()) {
+			DrawRoundedRectFillBorder(dc, m_rectCardChart, kRadius, m_clrMainCardBg, m_clrMainCardBorder);
+			DrawMainCardTitle(dc, m_rectCardChart, _T("Force Feedback (N)"));
+		}
 	}
 }
 
@@ -736,7 +650,7 @@ HBRUSH CSRDlg::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
 {
 	int id = pWnd->GetDlgCtrlID();
 	
-	// Status Edits
+	// Handle Status Edits (ReadOnly usually sends CTLCOLOR_STATIC)
 	if (id == IDC_EDIT_MOTOR_STATUS || id == IDC_EDIT_HAPTIC_STATUS)
 	{
 		CString strText;
@@ -750,7 +664,7 @@ HBRUSH CSRDlg::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
 		return (HBRUSH)GetStockObject(WHITE_BRUSH);
 	}
 
-	// Other ReadOnly Edits
+	// Handle other ReadOnly Edits
 	if (id == IDC_EDIT_MASTER_POS || id == IDC_EDIT_MASTER_ENC || id == IDC_EDIT_MASTER_FORCE ||
 		id == IDC_EDIT_POSE || id == IDC_EDIT_BEND || id == IDC_EDIT_GRIP_ANGLE || id == IDC_EDIT_GRIP_MOTOR)
 	{
@@ -763,23 +677,19 @@ HBRUSH CSRDlg::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
 	{
 		if (id == IDC_STATIC_CAMERA) return CDialogEx::OnCtlColor(pDC, pWnd, nCtlColor);
 		
+		// Transparent Labels
 		pDC->SetBkMode(TRANSPARENT);
 		
+		// Determine color based on location (Sidebar vs Main)
 		CRect r; 
 		pWnd->GetWindowRect(&r); 
 		ScreenToClient(&r);
 		
-		// Check intersection with SysCtrl
-		CRect intersect;
-		if (intersect.IntersectRect(&r, &m_rectCardSysCtrl)) {
-			pDC->SetTextColor(m_clrSysText);
+		if (r.left < kSidebarWidth) {
+			pDC->SetTextColor(m_clrSidebarText);
 		} else {
-			pDC->SetTextColor(m_clrSubText); // Muted color for labels
+			pDC->SetTextColor(m_clrMainText);
 		}
-		
-		// Use Main font by default for statics
-		pDC->SelectObject(&m_fontMain);
-		
 		return (HBRUSH)GetStockObject(NULL_BRUSH);
 	}
 

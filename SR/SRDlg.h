@@ -55,11 +55,12 @@ public:
 	COLORREF m_clrAppBg;
 	COLORREF m_clrHdrTop, m_clrHdrBottom, m_clrHdrText, m_clrHdrLine;
 	
-	// System Control Card (Two-tone)
-	COLORREF m_clrSysHdr, m_clrSysBody, m_clrSysBorder, m_clrSysText;
-
-	// Main Cards (White)
-	COLORREF m_clrCardBg, m_clrCardBorder, m_clrShadow;
+	// Sidebar
+	COLORREF m_clrSidebarBg, m_clrSidebarText;
+	COLORREF m_clrSideCardTitle, m_clrSideCardBg, m_clrSideCardBorder;
+	
+	// Main Cards
+	COLORREF m_clrMainCardBg, m_clrMainCardBorder;
 	COLORREF m_clrMainText, m_clrSubText;
 
 	// Status
@@ -67,29 +68,30 @@ public:
 
 	// --- Theme Brushes ---
 	CBrush m_brushAppBg;
-	CBrush m_brushCardBg;
+	CBrush m_brushSidebarBg;
+	CBrush m_brushMainCardBg;
 	
 	// Layout Helpers
-	static const int kHeaderHeight = 72;
-	static const int kMargin = 22;
-	static const int kGap = 18;
-	static const int kPad = 14;
-	static const int kRadius = 18;
-	static const int kTitleH = 38;
-	static const int kBtnH = 34;
-	static const int kBtnGap = 12;
+	static const int kHeaderHeight = 78;
+	static const int kSidebarWidth = 210;
+	static const int kMargin = 18;
+	static const int kGap = 16;
+	static const int kRadius = 14;
+	
+	// Refined Layout Params
+	static const int kSidebarPad = 14;
+	static const int kCardGap = 14;
 
 	// Layout Rects (for OnPaint)
-	CRect m_rectCardSysCtrl;
-	CRect m_rectCardCamera;
-	CRect m_rectCardMaster, m_rectCardRobot;
-	CRect m_rectCardChart;
+	CRect m_rectSidebar;
+	CRect m_rectMainArea;
+	CRect m_rectCardMotor, m_rectCardHaptic;
+	CRect m_rectCardCamera, m_rectCardMaster, m_rectCardRobot, m_rectCardChart;
 
 	void LayoutUI();
 	void DrawRoundedRectFillBorder(CDC& dc, CRect rc, int radius, COLORREF fill, COLORREF border);
-	void DrawCardWithTitle(CDC& dc, CRect rc, int radius, CString title, COLORREF bg, COLORREF border, COLORREF text);
-	void DrawSysControlCard(CDC& dc, CRect rc); // Specialized drawing for System Control
-	void DrawMainCardTitle(CDC& dc, CRect rc, CString title);
+	void DrawCardWithTitle(CDC& dc, CRect rc, int radius, CString title, COLORREF titleBg, COLORREF bodyBg, COLORREF border, COLORREF titleText);
+	void DrawMainCardTitle(CDC& dc, CRect rc, CString title); // New helper for Main cards
 	CWnd* FindStaticByText(const CString& text);
 
 protected:
