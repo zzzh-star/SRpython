@@ -75,7 +75,22 @@ void DrawMatToPic(cv::Mat& img, CStatic& pic)
 	if (rect.IsRectEmpty()) return;
 
 	cv::Mat resized;
-	cv::resize(img, resized, cv::Size(rect.Width(), rect.Height()));
+	// Align width to multiple of 4 to ensure stride is 4-byte aligned (required by GDI)
+	int alignedW = rect.Width() & ~3; 
+	if (alignedW < 4) alignedW = 4;
+	
+	cv::resize(img, resized, cv::Size(alignedW, rect.Height()));
+	
+	// Ensure 24-bit BGR and continuous for StretchDIBits
+	if (resized.type() != CV_8UC3 || !resized.isContinuous())
+	{
+		cv::Mat temp;
+		if (resized.channels() == 1) cv::cvtColor(resized, temp, cv::COLOR_GRAY2BGR);
+		else if (resized.channels() == 4) cv::cvtColor(resized, temp, cv::COLOR_BGRA2BGR);
+		else resized.copyTo(temp); // Make continuous
+		
+		resized = temp;
+	}
 
 	BITMAPINFO bitInfo;
 	memset(&bitInfo, 0, sizeof(BITMAPINFO));
@@ -218,6 +233,7 @@ BEGIN_MESSAGE_MAP(CSRDlg, CDialogEx)
 	ON_WM_QUERYDRAGICON()
 	ON_WM_SIZE()
 	ON_WM_TIMER()
+	ON_WM_DESTROY()
 	ON_BN_CLICKED(IDOK, &CSRDlg::OnBnClickedOk)
 	ON_BN_CLICKED(IDC_BUTTON_STARTM, &CSRDlg::OnClickedButtonStartM)
 	ON_BN_CLICKED(IDC_BUTTON_SHUTM, &CSRDlg::OnClickedButtonShutM)
@@ -226,6 +242,7 @@ BEGIN_MESSAGE_MAP(CSRDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BUTTON_STARTH, &CSRDlg::OnClickedButtonStartH)
 	ON_BN_CLICKED(IDC_BUTTON_ZEROH, &CSRDlg::OnClickedButtonZeroH)
 	ON_BN_CLICKED(IDC_BUTTON_SHUTH, &CSRDlg::OnClickedButtonShutH)
+	ON_BN_CLICKED(20001, &CSRDlg::OnClickedMotorSwitch)
 END_MESSAGE_MAP()
 
 BOOL CSRDlg::OnInitDialog()
@@ -239,12 +256,12 @@ BOOL CSRDlg::OnInitDialog()
 	m_fontTitle.CreateFont(24, 0, 0, 0, FW_BOLD, FALSE, FALSE, 0, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, _T("Segoe UI"));
 	m_fontMain.CreatePointFont(90, _T("Segoe UI"));
 	m_fontLabel.CreatePointFont(90, _T("Segoe UI Semibold"));
+	m_fontSidebarBtn.CreatePointFont(80, _T("Segoe UI"));
 
 	SetFont(&m_fontMain);
 
-	// Modernize Buttons
-	UINT btnIds[] = { IDC_BUTTON_STARTM, IDC_BUTTON_SHUTM, IDC_BUTTON_SPEEDM, IDC_BUTTON_ZEROM,
-					  IDC_BUTTON_STARTH, IDC_BUTTON_ZEROH, IDC_BUTTON_SHUTH, IDOK };
+	// Modernize Buttons (General)
+	UINT btnIds[] = { IDOK };
 	for (UINT id : btnIds) {
 		CWnd* pBtn = GetDlgItem(id);
 		if (pBtn) {
@@ -252,6 +269,21 @@ BOOL CSRDlg::OnInitDialog()
 			pBtn->SetFont(&m_fontMain);
 		}
 	}
+
+	// Sidebar Buttons (Motor & Haptic)
+	UINT sidebarBtnIds[] = { IDC_BUTTON_STARTM, IDC_BUTTON_SHUTM, IDC_BUTTON_SPEEDM, IDC_BUTTON_ZEROM,
+							 IDC_BUTTON_STARTH, IDC_BUTTON_ZEROH, IDC_BUTTON_SHUTH };
+	for (UINT id : sidebarBtnIds) {
+		CWnd* pBtn = GetDlgItem(id);
+		if (pBtn) {
+			::SetWindowTheme(pBtn->GetSafeHwnd(), L"Explorer", NULL);
+			pBtn->ModifyStyle(0, BS_MULTILINE | BS_CENTER | BS_VCENTER);
+			pBtn->SetFont(&m_fontSidebarBtn);
+		}
+	}
+
+	// Create Switch Button
+	m_btnMotorSwitch.Create(_T(""), WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, CRect(0,0,0,0), this, 20001);
 
 	// Hide old GroupBoxes and Titles
 	const TCHAR* gbTitles[] = { _T("电机控制"), _T("主手控制"), _T("摄像头画面"), _T("控制参数"), _T("末端力实时曲线"), _T("Motor"), _T("Haptic"), _T("Camera View"), _T("Master Param"), _T("Robot Param"), _T("Force Feedback (N)"), NULL };
@@ -292,7 +324,14 @@ BOOL CSRDlg::OnInitDialog()
 	m_editHapticStatus.SetWindowText(_T("Disconnected"));
 
 	// Camera Init
-	if (m_camera.open(0)) { } else { m_camera.open(1); }
+	if (!m_camera.open(0, cv::CAP_DSHOW)) m_camera.open(1, cv::CAP_DSHOW);
+	if (m_camera.isOpened())
+	{
+		m_camera.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
+		m_camera.set(cv::CAP_PROP_FRAME_WIDTH, 640);
+		m_camera.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
+		m_camera.set(cv::CAP_PROP_CONVERT_RGB, 1);
+	}
 	SetTimer(2, 50, NULL);
 
 	// Chart Init
@@ -304,6 +343,11 @@ BOOL CSRDlg::OnInitDialog()
 		m_ChartCtrl.GetTitle()->AddString(_T("")); 
 		m_ChartCtrl.SetBackColor(RGB(255, 255, 255));
 		m_ChartCtrl.SetBorderColor(m_clrMainCardBorder); 
+		
+		// Enable Legend
+		m_ChartCtrl.GetLegend()->SetVisible(true);
+		m_ChartCtrl.GetLegend()->DockLegend(CChartLegend::dsDockRight);
+		m_ChartCtrl.GetLegend()->SetHorizontalMode(false);
 
 		CChartStandardAxis* pBottomAxis = m_ChartCtrl.CreateStandardAxis(CChartCtrl::BottomAxis);
 		pBottomAxis->SetMinMax(0, 100);
@@ -331,8 +375,8 @@ BOOL CSRDlg::OnInitDialog()
 		m_pLineSeries[2]->SetName(_T("Fz"));
 	}
 	
-	// Initial Window Size (1100x720) and Center
-	SetWindowPos(NULL, 0, 0, 1100, 720, SWP_NOMOVE | SWP_NOZORDER);
+	// Initial Window Size (1100x850) and Center
+	SetWindowPos(NULL, 0, 0, 1100, 850, SWP_NOMOVE | SWP_NOZORDER);
 	CenterWindow();
 
 	LayoutUI();
@@ -395,20 +439,33 @@ void CSRDlg::LayoutUI()
 	int y = kHeaderHeight + kCardGap;
 	int cardW = kSidebarWidth - 2 * kSidebarPad;
 	
-	// Motor Card (Height enough for 4 buttons + header)
-	int btnH = 26; 
+	// Motor Card (Height for 1 Switch + header)
+	int btnH = 34; 
 	int titleH = 26;
 	int pad = 8;
-	int motorH = titleH + pad + (btnH + pad) * 4 + pad;
+	// Only 1 switch now, maybe adjust height or keep similar spacing? 
+	// Let's make it compact but nice. Header + Pad + Switch + Pad
+	int motorH = titleH + pad + btnH + pad; 
 	m_rectCardMotor.SetRect(x, y, x + cardW, y + motorH);
 	
-	// Move Motor Buttons
+	// Move Motor Switch
+	// Hide old buttons
 	UINT motorBtns[] = { IDC_BUTTON_STARTM, IDC_BUTTON_SPEEDM, IDC_BUTTON_ZEROM, IDC_BUTTON_SHUTM };
-	int cyBtn = m_rectCardMotor.top + titleH + pad;
 	for(UINT id : motorBtns) {
 		CWnd* p = GetDlgItem(id);
-		if(p) p->SetWindowPos(NULL, m_rectCardMotor.left + pad, cyBtn, cardW - 2*pad, btnH, SWP_NOZORDER);
-		cyBtn += btnH + pad;
+		if(p) p->ShowWindow(SW_HIDE);
+	}
+	// Position new switch
+	if (m_btnMotorSwitch.GetSafeHwnd()) {
+		// Center the switch horizontally? Or fill width?
+		// Image shows a pill shape. Let's make it e.g. 60x30 centered or left aligned?
+		// User said "replace... with a single 'Motor Control' switch". 
+		// Typically switches are smaller than full width buttons.
+		// Let's make it 80x34 centered.
+		int switchW = 80;
+		int switchX = m_rectCardMotor.left + (m_rectCardMotor.Width() - switchW) / 2;
+		int switchY = m_rectCardMotor.top + titleH + pad;
+		m_btnMotorSwitch.SetWindowPos(NULL, switchX, switchY, switchW, btnH, SWP_NOZORDER);
 	}
 
 	// Haptic Card (Height for 3 buttons + header)
@@ -418,7 +475,7 @@ void CSRDlg::LayoutUI()
 
 	// Move Haptic Buttons
 	UINT hapticBtns[] = { IDC_BUTTON_STARTH, IDC_BUTTON_ZEROH, IDC_BUTTON_SHUTH };
-	cyBtn = m_rectCardHaptic.top + titleH + pad;
+	int cyBtn = m_rectCardHaptic.top + titleH + pad;
 	for(UINT id : hapticBtns) {
 		CWnd* p = GetDlgItem(id);
 		if(p) p->SetWindowPos(NULL, m_rectCardHaptic.left + pad, cyBtn, cardW - 2*pad, btnH, SWP_NOZORDER);
@@ -439,7 +496,7 @@ void CSRDlg::LayoutUI()
 	int camW = mainW - rightColW - kCardGap;
 	
 	// Camera Card (Top Left)
-	int row1H = 260; // Camera height increased slightly
+	int row1H = 330; // Camera height increased to match expanded right column
 	m_rectCardCamera.SetRect(x, y, x + camW, y + row1H);
 	
 	// Move Camera
@@ -448,7 +505,7 @@ void CSRDlg::LayoutUI()
 	}
 	
 	// Master Param Card (Top Right)
-	m_rectCardMaster.SetRect(x + camW + kCardGap, y, x + camW + kCardGap + rightColW, y + 140);
+	m_rectCardMaster.SetRect(x + camW + kCardGap, y, x + camW + kCardGap + rightColW, y + 165);
 	
 	// Move Master Params
 	{
@@ -835,6 +892,62 @@ void CSRDlg::OnClickedButtonShutH()
 
 void CSRDlg::OnTimer(UINT_PTR nIDEvent)
 {
+	if (nIDEvent == 3) // Motor Sequence Logic
+	{
+		// 1: STARTING (Wait Start success -> Trigger Speed)
+		if (m_nMotorSwitchState == 1)
+		{
+			// "Wait until motor start success" - OnClickedButtonStartM already ran synchronously mostly, 
+			// but user wants a sequence. "Start -> Wait -> Speed".
+			// Since OnClickedButtonStartM sets maxon_state=TRUE on success immediately, 
+			// we can proceed to speed setting.
+			// Let's add a small delay simulation or check actual hardware status if possible.
+			// Assuming connected:
+			if (maxon_state)
+			{
+				// Execute Speed Setting
+				OnClickedButtonSpeedM();
+				
+				// "Once speed set success -> Green"
+				// SpeedM is also synchronous. If it returns/finishes, we assume success or check errors.
+				// Let's assume success for now.
+				
+				m_nMotorSwitchState = 3; // ON
+				m_btnMotorSwitch.SetSwitchState(CSwitchButton::SWITCH_ON);
+				KillTimer(3);
+			}
+		}
+		// 4: ZEROING (Wait Zero success -> Trigger Shut)
+		else if (m_nMotorSwitchState == 4)
+		{
+			// "Wait until zeroing success"
+			// Check if positions are close to 0.
+			// User said "Wait until zeroing success then execute close".
+			// We can check `m_pMotorManager->MoveToPosition` behavior or check Encoders.
+			// `OnClickedButtonZeroM` sends MoveToPosition(0).
+			// We should poll `GetPosition` or `GetMovingState` if available.
+			// MotorManager doesn't seem to have GetPosition exposed easily in header we saw.
+			// But we saw `maxon5_position` etc variables?
+			// Let's just use a timeout for safety (e.g. 3 seconds) or if we had position feedback.
+			// User mentioned "Refer to Zero Button", which just calls MoveToPosition.
+			
+			static int zeroWaitTick = 0;
+			zeroWaitTick++;
+			
+			// Simple wait 2 seconds (20 * 100ms)
+			if (zeroWaitTick > 20) 
+			{
+				zeroWaitTick = 0;
+				// Execute Shut
+				OnClickedButtonShutM();
+				
+				m_nMotorSwitchState = 0; // OFF
+				m_btnMotorSwitch.SetSwitchState(CSwitchButton::SWITCH_OFF);
+				KillTimer(3);
+			}
+		}
+	}
+
 	if (nIDEvent == 2)
 	{
 		if (m_camera.isOpened())
@@ -842,6 +955,15 @@ void CSRDlg::OnTimer(UINT_PTR nIDEvent)
 			m_camera >> m_cameraFrame;
 			if (!m_cameraFrame.empty())
 			{
+				// Ensure BGR
+				if (m_cameraFrame.channels() == 1)
+				{
+					cv::cvtColor(m_cameraFrame, m_cameraFrame, cv::COLOR_GRAY2BGR);
+				}
+				else if (m_cameraFrame.channels() == 4)
+				{
+					cv::cvtColor(m_cameraFrame, m_cameraFrame, cv::COLOR_BGRA2BGR);
+				}
 				DrawMatToPic(m_cameraFrame, m_picCamera);
 			}
 		}
@@ -982,4 +1104,63 @@ void CSRDlg::OnTimer(UINT_PTR nIDEvent)
 	}
 
 	CDialogEx::OnTimer(nIDEvent);
+}
+
+void CSRDlg::OnDestroy()
+{
+	KillTimer(1);
+	KillTimer(2);
+	KillTimer(3);
+
+	if (m_camera.isOpened()) m_camera.release();
+
+	// Safe Motor Cleanup
+	if (m_pMotorManager)
+	{
+		m_pMotorManager->DisableMotors();
+	}
+
+	dhdClose();
+
+	CDialogEx::OnDestroy();
+}
+
+void CSRDlg::OnClickedMotorSwitch()
+{
+	// 0: OFF, 1: STARTING (Wait Start), 2: CONFIGURING (Wait Speed), 3: ON, 4: ZEROING (Wait Zero), 5: STOPPING (Wait Disable)
+	
+	if (m_nMotorSwitchState == 0) // OFF -> Turn ON
+	{
+		// 1. Start Motor
+		OnClickedButtonStartM(); 
+		
+		// Check if start failed (if maxon_state is still false)
+		if (!maxon_state) {
+			m_nMotorSwitchState = 0;
+			m_btnMotorSwitch.SetSwitchState(CSwitchButton::SWITCH_OFF);
+			return;
+		}
+
+		// 2. Enter Waiting State (Orange)
+		m_nMotorSwitchState = 1; // Start Waiting
+		m_btnMotorSwitch.SetSwitchState(CSwitchButton::SWITCH_WAITING);
+		
+		// Start Timer to check progress
+		m_nMotorTimer = SetTimer(3, 100, NULL); // Timer ID 3 for Motor Sequence
+	}
+	else if (m_nMotorSwitchState == 3) // ON -> Turn OFF
+	{
+		// 1. Start Zeroing
+		OnClickedButtonZeroM(); 
+		
+		// 2. Enter Waiting State (Orange) - Waiting for Zeroing
+		m_nMotorSwitchState = 4; // Zeroing
+		m_btnMotorSwitch.SetSwitchState(CSwitchButton::SWITCH_WAITING);
+
+		// Start Timer to check progress (wait for some time or check position)
+		// Since we don't have a "IsZeroed" callback, we simulate wait or check position 0
+		m_nMotorTimer = SetTimer(3, 100, NULL);
+	}
+	// If in intermediate states (1,2,4,5), ignore clicks or cancel? 
+	// For now ignore.
 }

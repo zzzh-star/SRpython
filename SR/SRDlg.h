@@ -4,6 +4,7 @@
 #include <vector>
 #include "ChartCtrl.h"
 #include "ChartLineSerie.h"
+#include "SwitchButton.h"
 #include <opencv2/opencv.hpp>
 
 constexpr double kPI = 3.1415926;
@@ -46,10 +47,18 @@ public:
 	cv::Mat m_cameraFrame;
 	CStatic m_picCamera;
 
+	// Switch Button
+	CSwitchButton m_btnMotorSwitch;
+	// 0: OFF, 1: STARTING (Wait Start), 2: CONFIGURING (Wait Speed), 3: ON, 4: ZEROING (Wait Zero), 5: STOPPING (Wait Disable)
+	int m_nMotorSwitchState = 0; 
+	// Timer for async operations
+	UINT_PTR m_nMotorTimer = 0;
+
 	// UI Customization Resources
 	CFont m_fontTitle;      // Header Title Font
 	CFont m_fontMain;       // Main UI Font
 	CFont m_fontLabel;      // Label Font (Bold)
+	CFont m_fontSidebarBtn; // Sidebar Button Font
 
 	// --- Theme Colors ---
 	COLORREF m_clrAppBg;
@@ -137,6 +146,7 @@ protected:
 	afx_msg BOOL OnEraseBkgnd(CDC* pDC);
 	afx_msg HCURSOR OnQueryDragIcon();
 	afx_msg void OnSize(UINT nType, int cx, int cy);
+	afx_msg void OnDestroy();
 
 	// Add OnCtlColor for custom control coloring
 	afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);
@@ -156,4 +166,9 @@ public:
 	afx_msg void OnClickedButtonStartH();
 	afx_msg void OnClickedButtonZeroH();
 	afx_msg void OnClickedButtonShutH();
+	afx_msg void OnClickedMotorSwitch();
 };
+
+// Add to class declaration
+// afx_msg void OnClickedMotorSwitch(); 
+// We need to inject this into SRDlg.h, let's use sed or replace

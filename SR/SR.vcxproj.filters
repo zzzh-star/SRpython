@@ -165,6 +165,9 @@
     <ClInclude Include="MotorManager.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="SwitchButton.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="SR.cpp">
@@ -252,6 +255,9 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="MotorManager.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="SwitchButton.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

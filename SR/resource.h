@@ -1,6 +1,6 @@
 //{{NO_DEPENDENCIES}}
-// Microsoft Visual C++ generated include file.
-// Used by SR.rc
+// Microsoft Visual C++ 生成的包含文件。
+// 供 SR.rc 使用
 //
 #define IDM_ABOUTBOX                    0x0010
 #define IDD_ABOUTBOX                    100
@@ -26,8 +26,6 @@
 #define IDC_EDIT_BEND                   1016
 #define IDC_EDIT_GRIP_ANGLE             1017
 #define IDC_EDIT_GRIP_MOTOR             1018
-
-// New Panel and Card Backgrounds (1019-1025)
 #define IDC_PANEL_LEFT_BG               1019
 #define IDC_CARD_MOTOR_BG               1020
 #define IDC_CARD_HAND_BG                1021
