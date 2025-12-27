@@ -22,8 +22,11 @@ public:
 
     void SetPngResources(UINT resOff, UINT resOn);
 
+    void SetBackgroundColor(COLORREF color);
+
 protected:
     SwitchState m_state;
+    COLORREF m_bgColor;
     UINT m_resOff;
     UINT m_resOn;
 

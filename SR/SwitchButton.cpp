@@ -62,6 +62,7 @@ namespace
 
 CSwitchButton::CSwitchButton()
     : m_state(SWITCH_OFF)
+    , m_bgColor(GetSysColor(COLOR_3DFACE))
     , m_resOff(0)
     , m_resOn(0)
 {
@@ -94,6 +95,12 @@ void CSwitchButton::SetPngResources(UINT resOff, UINT resOn)
     m_resOn = resOn;
     m_bmpOff.reset();
     m_bmpOn.reset();
+    Invalidate();
+}
+
+void CSwitchButton::SetBackgroundColor(COLORREF color)
+{
+    m_bgColor = color;
     Invalidate();
 }
 
@@ -147,7 +154,7 @@ void CSwitchButton::DrawItem(LPDRAWITEMSTRUCT lpDrawItemStruct)
     // For now, assume a dark background or let's fill with a known color if needed.
     // Since we are custom drawing, we draw the pill shape.
 
-    dc.FillSolidRect(&rect, GetSysColor(COLOR_3DFACE));
+    dc.FillSolidRect(&rect, m_bgColor);
     dc.SetBkMode(TRANSPARENT);
 
     Gdiplus::Bitmap* pBmp = GetBitmapForState();
