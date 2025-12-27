@@ -167,6 +167,15 @@ public:
 	afx_msg void OnClickedButtonZeroH();
 	afx_msg void OnClickedButtonShutH();
 	afx_msg void OnClickedMotorSwitch();
+
+	// Haptic Switch Helpers and Handler
+	CSwitchButton m_btnHapticSwitch;
+	int m_nHapticSwitchState = 0; // 0: OFF, 1: ON
+	afx_msg void OnClickedHapticSwitch();
+
+	bool StartHapticDevice();
+	bool ZeroHapticDevice();
+	void StopHapticDevice();
 };
 
 // Add to class declaration

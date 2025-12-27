@@ -5,6 +5,8 @@
 #include "framework.h"
 #include "SR.h"
 #include "SRDlg.h"
+#include "ChartAxisLabel.h"
+#include "ChartGrid.h"
 #include "afxdialogex.h"
 
 #ifdef _WIN64
@@ -152,7 +154,7 @@ CSRDlg::CSRDlg(CWnd* pParent /*=nullptr*/)
 	// --- Theme Color Initialization ---
 
 	// App BG
-	m_clrAppBg     = RGB(238, 242, 246);
+	m_clrAppBg     = RGB(236, 239, 241); // Slightly darker Cool Gray (#ECEFF1)
 
 	// Header
 	m_clrHdrTop    = RGB(16, 45, 70);
@@ -168,7 +170,7 @@ CSRDlg::CSRDlg(CWnd* pParent /*=nullptr*/)
 	m_clrSidebarText   = RGB(235, 240, 245);
 
 	// Main Cards
-	m_clrMainCardBg    = RGB(255, 255, 255);
+	m_clrMainCardBg    = RGB(244, 246, 248); // Cool Gray
 	m_clrMainCardBorder= RGB(230, 235, 242); // Lighter border
 	m_clrMainText      = RGB(35, 40, 45);
 	m_clrSubText       = RGB(110, 120, 130);
@@ -243,6 +245,7 @@ BEGIN_MESSAGE_MAP(CSRDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BUTTON_ZEROH, &CSRDlg::OnClickedButtonZeroH)
 	ON_BN_CLICKED(IDC_BUTTON_SHUTH, &CSRDlg::OnClickedButtonShutH)
 	ON_BN_CLICKED(20001, &CSRDlg::OnClickedMotorSwitch)
+	ON_BN_CLICKED(20002, &CSRDlg::OnClickedHapticSwitch)
 END_MESSAGE_MAP()
 
 BOOL CSRDlg::OnInitDialog()
@@ -286,6 +289,10 @@ BOOL CSRDlg::OnInitDialog()
 	m_btnMotorSwitch.Create(_T(""), WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, CRect(0,0,0,0), this, 20001);
 	m_btnMotorSwitch.SetPngResources(IDR_PNG_SWITCH_OFF, IDR_PNG_SWITCH_ON);
 	m_btnMotorSwitch.SetBackgroundColor(m_clrSideCardBg);
+
+	m_btnHapticSwitch.Create(_T(""), WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, CRect(0,0,0,0), this, 20002);
+	m_btnHapticSwitch.SetPngResources(IDR_PNG_SWITCH_OFF, IDR_PNG_SWITCH_ON);
+	m_btnHapticSwitch.SetBackgroundColor(m_clrSideCardBg);
 
 	// Hide old GroupBoxes and Titles
 	const TCHAR* gbTitles[] = { _T("电机控制"), _T("主手控制"), _T("摄像头画面"), _T("控制参数"), _T("末端力实时曲线"), _T("Motor"), _T("Haptic"), _T("Camera View"), _T("Master Param"), _T("Robot Param"), _T("Force Feedback (N)"), NULL };
@@ -343,9 +350,10 @@ BOOL CSRDlg::OnInitDialog()
 		m_ChartCtrl.Create(this, rect, 2000, WS_CHILD | WS_VISIBLE);
 		m_ChartCtrl.EnableRefresh(true);
 		m_ChartCtrl.GetTitle()->AddString(_T("")); 
-		m_ChartCtrl.SetBackColor(RGB(255, 255, 255));
-		m_ChartCtrl.SetBorderColor(m_clrMainCardBorder); 
-		
+		m_ChartCtrl.SetBackColor(m_clrMainCardBg);
+		m_ChartCtrl.SetBorderColor(m_clrMainCardBg); 
+		m_ChartCtrl.SetEdgeType(0);
+
 		// Enable Legend
 		m_ChartCtrl.GetLegend()->SetVisible(true);
 		m_ChartCtrl.GetLegend()->DockLegend(CChartLegend::dsDockRight);
@@ -354,9 +362,16 @@ BOOL CSRDlg::OnInitDialog()
 		CChartStandardAxis* pBottomAxis = m_ChartCtrl.CreateStandardAxis(CChartCtrl::BottomAxis);
 		pBottomAxis->SetMinMax(0, 100);
 		pBottomAxis->SetTextColor(m_clrSubText);
+		pBottomAxis->GetLabel()->SetText(_T("Time (s)"));
+		pBottomAxis->GetGrid()->SetVisible(true);
+		pBottomAxis->GetGrid()->SetColor(RGB(200, 200, 200));
 
 		CChartStandardAxis* pLeftAxis = m_ChartCtrl.CreateStandardAxis(CChartCtrl::LeftAxis);
+		pLeftAxis->SetMinMax(-10, 10); // Set default range to ensure ticks/grid appear
 		pLeftAxis->SetTextColor(m_clrSubText);
+		pLeftAxis->GetLabel()->SetText(_T("Force (N)"));
+		pLeftAxis->GetGrid()->SetVisible(true);
+		pLeftAxis->GetGrid()->SetColor(RGB(200, 200, 200));
 
 		// Fx: Blue
 		m_pLineSeries[0] = m_ChartCtrl.CreateLineSerie();
@@ -468,18 +483,24 @@ void CSRDlg::LayoutUI()
 		m_btnMotorSwitch.SetWindowPos(NULL, switchX, switchY, switchBtnW, switchBtnH, SWP_NOZORDER);
 	}
 
-	// Haptic Card (Height for 3 buttons + header)
+	// Haptic Card (Height adjusted for Switch, match Motor Card)
 	y = m_rectCardMotor.bottom + kCardGap;
-	int hapticH = titleH + pad + (btnH + pad) * 3 + pad;
+	// Use same height as Motor card since it's just one switch
+	int hapticH = m_rectCardMotor.Height(); 
 	m_rectCardHaptic.SetRect(x, y, x + cardW, y + hapticH);
 
-	// Move Haptic Buttons
+	// Hide Old Haptic Buttons
 	UINT hapticBtns[] = { IDC_BUTTON_STARTH, IDC_BUTTON_ZEROH, IDC_BUTTON_SHUTH };
-	int cyBtn = m_rectCardHaptic.top + titleH + pad;
 	for(UINT id : hapticBtns) {
 		CWnd* p = GetDlgItem(id);
-		if(p) p->SetWindowPos(NULL, m_rectCardHaptic.left + pad, cyBtn, cardW - 2*pad, btnH, SWP_NOZORDER);
-		cyBtn += btnH + pad;
+		if(p) p->ShowWindow(SW_HIDE);
+	}
+
+	// Position new Haptic switch (Right Aligned)
+	if (m_btnHapticSwitch.GetSafeHwnd()) {
+		int switchX = m_rectCardHaptic.right - 12 - switchBtnW;
+		int switchY = m_rectCardHaptic.top + titleH + pad;
+		m_btnHapticSwitch.SetWindowPos(NULL, switchX, switchY, switchBtnW, switchBtnH, SWP_NOZORDER);
 	}
 	
 	// Exit Button
@@ -695,14 +716,33 @@ void CSRDlg::OnPaint()
 			dc.SetTextColor(m_clrSidebarText);
 			dc.SelectObject(&m_fontSidebarBtn);
 
-			// Use Unicode Hex for "\xb5\xe7\xbb\xfa\xc6\xf4\xb6\xaf" to prevent encoding garble
+			// Unicode: 鐢垫満鍚姩
 			dc.DrawText(L"\x7535\x673A\x542F\x52A8", &rcLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
 			dc.RestoreDC(nSavedDC); // Restore DC state
 		}
 		
-		if (!m_rectCardHaptic.IsRectEmpty())
+		if (!m_rectCardHaptic.IsRectEmpty()) {
 			DrawCardWithTitle(dc, m_rectCardHaptic, kRadius, _T("Haptic Control"), m_clrSideCardTitle, m_clrSideCardBg, m_clrSideCardBorder, m_clrSidebarText);
+		
+			// Draw "Master Start" Label on Left
+			int nSavedDC = dc.SaveDC(); 
+
+			CRect rcLabel = m_rectCardHaptic;
+			rcLabel.top += 34; // header + pad
+			rcLabel.bottom = rcLabel.top + 46; // switch height
+			rcLabel.left += 12; // Left Padding
+			rcLabel.right -= 100; // Avoid switch area
+
+			dc.SetBkMode(TRANSPARENT);
+			dc.SetTextColor(m_clrSidebarText);
+			dc.SelectObject(&m_fontSidebarBtn);
+
+			// "Master Start" = 涓绘墜鍚姩 = \u4E3B\u624B\u542F\u52A8
+			dc.DrawText(L"\x4E3B\x624B\x542F\x52A8", &rcLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+			dc.RestoreDC(nSavedDC);
+		}
 
 		// 5. Main Cards (White)
 		if (!m_rectCardCamera.IsRectEmpty()) DrawRoundedRectFillBorder(dc, m_rectCardCamera, kRadius, m_clrMainCardBg, m_clrMainCardBorder);
@@ -862,13 +902,13 @@ void CSRDlg::OnClickedButtonZeroM()
 	}
 }
 
-void CSRDlg::OnClickedButtonStartH()
+bool CSRDlg::StartHapticDevice()
 {
 	if (dhdOpen() < 0) {
 		m_editHapticStatus.SetWindowText(_T("Connect Failed"));
 		m_editHapticStatus.Invalidate();
 		AfxMessageBox(_T("Cannot open Haptic Device - Check connection or driver"), MB_ICONERROR);
-		return;
+		return false;
 	}
 
 	m_editHapticStatus.SetWindowText(_T("Connected"));
@@ -879,12 +919,18 @@ void CSRDlg::OnClickedButtonStartH()
 
 	done = 0;
 	SetTimer(1, 10, NULL);
+	return true;
 }
 
-void CSRDlg::OnClickedButtonZeroH()
+void CSRDlg::OnClickedButtonStartH()
+{
+	StartHapticDevice();
+}
+
+bool CSRDlg::ZeroHapticDevice()
 {
 	if (dhdGetPosition(&px, &py, &pz) < 0) {
-		return;
+		return false;
 	}
 
 	dhdGetEnc(enc);
@@ -898,9 +944,15 @@ void CSRDlg::OnClickedButtonZeroH()
 
 	Ning = true;
 	motor_flag = TRUE;
+	return true;
 }
 
-void CSRDlg::OnClickedButtonShutH()
+void CSRDlg::OnClickedButtonZeroH()
+{
+	ZeroHapticDevice();
+}
+
+void CSRDlg::StopHapticDevice()
 {
 	KillTimer(1);
 	dhdClose();
@@ -911,6 +963,11 @@ void CSRDlg::OnClickedButtonShutH()
 
 	m_editHapticStatus.SetWindowText(_T("Disconnected"));
 	m_editHapticStatus.Invalidate();
+}
+
+void CSRDlg::OnClickedButtonShutH()
+{
+	StopHapticDevice();
 }
 
 void CSRDlg::OnTimer(UINT_PTR nIDEvent)
@@ -1188,4 +1245,37 @@ void CSRDlg::OnClickedMotorSwitch()
 	}
 	// If in intermediate states (1,2,4,5), ignore clicks or cancel? 
 	// For now ignore.
+}
+
+void CSRDlg::OnClickedHapticSwitch()
+{
+	if (m_nHapticSwitchState == 0) // OFF -> Turn ON
+	{
+		// 1. Start
+		if (!StartHapticDevice()) {
+			// Fail
+			m_btnHapticSwitch.SetSwitchState(CSwitchButton::SWITCH_OFF);
+			m_nHapticSwitchState = 0;
+			return;
+		}
+
+		// 2. Zero (Immediate)
+		if (!ZeroHapticDevice()) {
+			// Fail Zero -> Stop
+			StopHapticDevice();
+			m_btnHapticSwitch.SetSwitchState(CSwitchButton::SWITCH_OFF);
+			m_nHapticSwitchState = 0;
+			return;
+		}
+
+		// Success
+		m_nHapticSwitchState = 1; // ON
+		m_btnHapticSwitch.SetSwitchState(CSwitchButton::SWITCH_ON);
+	}
+	else // ON -> Turn OFF
+	{
+		StopHapticDevice();
+		m_nHapticSwitchState = 0; // OFF
+		m_btnHapticSwitch.SetSwitchState(CSwitchButton::SWITCH_OFF);
+	}
 }
