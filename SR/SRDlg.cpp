@@ -284,6 +284,7 @@ BOOL CSRDlg::OnInitDialog()
 
 	// Create Switch Button
 	m_btnMotorSwitch.Create(_T(""), WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, CRect(0,0,0,0), this, 20001);
+	m_btnMotorSwitch.SetPngResources(IDR_PNG_SWITCH_OFF, IDR_PNG_SWITCH_ON);
 
 	// Hide old GroupBoxes and Titles
 	const TCHAR* gbTitles[] = { _T("电机控制"), _T("主手控制"), _T("摄像头画面"), _T("控制参数"), _T("末端力实时曲线"), _T("Motor"), _T("Haptic"), _T("Camera View"), _T("Master Param"), _T("Robot Param"), _T("Force Feedback (N)"), NULL };
@@ -457,12 +458,7 @@ void CSRDlg::LayoutUI()
 	}
 	// Position new switch
 	if (m_btnMotorSwitch.GetSafeHwnd()) {
-		// Center the switch horizontally? Or fill width?
-		// Image shows a pill shape. Let's make it e.g. 60x30 centered or left aligned?
-		// User said "replace... with a single 'Motor Control' switch". 
-		// Typically switches are smaller than full width buttons.
-		// Let's make it 80x34 centered.
-		int switchW = 80;
+		int switchW = 56;
 		int switchX = m_rectCardMotor.left + (m_rectCardMotor.Width() - switchW) / 2;
 		int switchY = m_rectCardMotor.top + titleH + pad;
 		m_btnMotorSwitch.SetWindowPos(NULL, switchX, switchY, switchW, btnH, SWP_NOZORDER);

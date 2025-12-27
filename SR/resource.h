@@ -34,6 +34,9 @@
 #define IDC_CARD_ROBOT_BG               1024
 #define IDC_CARD_FORCE_BG               1025
 
+#define IDR_PNG_SWITCH_OFF              40001
+#define IDR_PNG_SWITCH_ON               40002
+
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED

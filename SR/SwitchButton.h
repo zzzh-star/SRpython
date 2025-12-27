@@ -1,5 +1,9 @@
 #pragma once
 #include <afxwin.h>
+#include <gdiplus.h>
+#include <memory>
+
+#pragma comment(lib, "gdiplus.lib")
 
 class CSwitchButton : public CButton
 {
@@ -16,8 +20,19 @@ public:
     void SetSwitchState(SwitchState state);
     SwitchState GetSwitchState() const { return m_state; }
 
+    void SetPngResources(UINT resOff, UINT resOn);
+
 protected:
     SwitchState m_state;
+    UINT m_resOff;
+    UINT m_resOn;
+
+    std::unique_ptr<Gdiplus::Bitmap> m_bmpOff;
+    std::unique_ptr<Gdiplus::Bitmap> m_bmpOn;
+
+    static bool EnsureGdiPlus();
+    void EnsureBitmaps();
+    Gdiplus::Bitmap* GetBitmapForState();
     virtual void DrawItem(LPDRAWITEMSTRUCT lpDrawItemStruct);
     afx_msg void OnLButtonUp(UINT nFlags, CPoint point);
     DECLARE_MESSAGE_MAP()

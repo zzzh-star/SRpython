@@ -1,8 +1,69 @@
 #include "pch.h"
 #include "SwitchButton.h"
 
+#include <algorithm>
+#include <memory>
+
+namespace
+{
+    bool g_gdiplusInitialized = false;
+    ULONG_PTR g_gdiplusToken = 0;
+
+    std::unique_ptr<Gdiplus::Bitmap> LoadPngFromResource(UINT resId)
+    {
+        if (resId == 0)
+            return nullptr;
+
+        HINSTANCE hInst = AfxGetResourceHandle();
+        HRSRC hRsrc = ::FindResource(hInst, MAKEINTRESOURCE(resId), _T("PNG"));
+        if (!hRsrc)
+            return nullptr;
+
+        DWORD dwSize = ::SizeofResource(hInst, hRsrc);
+        HGLOBAL hGlobal = ::LoadResource(hInst, hRsrc);
+        if (!hGlobal || dwSize == 0)
+            return nullptr;
+
+        void* pData = ::LockResource(hGlobal);
+        if (!pData)
+            return nullptr;
+
+        HGLOBAL hBuffer = ::GlobalAlloc(GMEM_MOVEABLE, dwSize);
+        if (!hBuffer)
+            return nullptr;
+
+        void* pBuffer = ::GlobalLock(hBuffer);
+        if (!pBuffer)
+        {
+            ::GlobalFree(hBuffer);
+            return nullptr;
+        }
+
+        memcpy(pBuffer, pData, dwSize);
+        ::GlobalUnlock(hBuffer);
+
+        IStream* pStream = nullptr;
+        if (FAILED(::CreateStreamOnHGlobal(hBuffer, TRUE, &pStream)))
+        {
+            ::GlobalFree(hBuffer);
+            return nullptr;
+        }
+
+        std::unique_ptr<Gdiplus::Bitmap> bmp(Gdiplus::Bitmap::FromStream(pStream));
+        pStream->Release();
+
+        if (!bmp || bmp->GetLastStatus() != Gdiplus::Ok)
+            return nullptr;
+
+        return bmp;
+    }
+}
+
+
 CSwitchButton::CSwitchButton()
     : m_state(SWITCH_OFF)
+    , m_resOff(0)
+    , m_resOn(0)
 {
 }
 
@@ -14,6 +75,28 @@ BEGIN_MESSAGE_MAP(CSwitchButton, CButton)
     // ON_WM_LBUTTONUP() // Let the parent handle the click logic via BN_CLICKED, or handle here if we want internal toggling
 END_MESSAGE_MAP()
 
+bool CSwitchButton::EnsureGdiPlus()
+{
+    if (g_gdiplusInitialized)
+        return true;
+
+    Gdiplus::GdiplusStartupInput gdiplusStartupInput;
+    if (Gdiplus::GdiplusStartup(&g_gdiplusToken, &gdiplusStartupInput, nullptr) == Gdiplus::Ok)
+    {
+        g_gdiplusInitialized = true;
+    }
+    return g_gdiplusInitialized;
+}
+
+void CSwitchButton::SetPngResources(UINT resOff, UINT resOn)
+{
+    m_resOff = resOff;
+    m_resOn = resOn;
+    m_bmpOff.reset();
+    m_bmpOn.reset();
+    Invalidate();
+}
+
 void CSwitchButton::SetSwitchState(SwitchState state)
 {
     if (m_state != state)
@@ -23,10 +106,32 @@ void CSwitchButton::SetSwitchState(SwitchState state)
     }
 }
 
+void CSwitchButton::EnsureBitmaps()
+{
+    if (!EnsureGdiPlus())
+        return;
+
+    if (!m_bmpOff && m_resOff)
+        m_bmpOff = LoadPngFromResource(m_resOff);
+    if (!m_bmpOn && m_resOn)
+        m_bmpOn = LoadPngFromResource(m_resOn);
+}
+
+Gdiplus::Bitmap* CSwitchButton::GetBitmapForState()
+{
+    EnsureBitmaps();
+
+    if (m_state == SWITCH_OFF)
+        return m_bmpOff.get();
+
+    // WAITING and ON share the ON visual by default
+    return m_bmpOn ? m_bmpOn.get() : m_bmpOff.get();
+}
+
 void CSwitchButton::OnLButtonUp(UINT nFlags, CPoint point)
 {
     // Pass to base class to generate BN_CLICKED notification
-    CButton::OnLButtonUp(nFlags, point); 
+    CButton::OnLButtonUp(nFlags, point);
 }
 
 void CSwitchButton::DrawItem(LPDRAWITEMSTRUCT lpDrawItemStruct)
@@ -42,86 +147,44 @@ void CSwitchButton::DrawItem(LPDRAWITEMSTRUCT lpDrawItemStruct)
     // For now, assume a dark background or let's fill with a known color if needed.
     // Since we are custom drawing, we draw the pill shape.
 
+    dc.FillSolidRect(&rect, GetSysColor(COLOR_3DFACE));
     dc.SetBkMode(TRANSPARENT);
 
-    // Colors
-    COLORREF clrBgOff = RGB(80, 80, 80);    // Dark Gray
-    COLORREF clrBgOn = RGB(46, 125, 50);    // Green
-    COLORREF clrBgWait = RGB(255, 140, 0);  // Orange
-    
-    COLORREF clrKnob = RGB(240, 240, 240);  // White/Light Gray
-    COLORREF clrBorder = RGB(60, 60, 60);
+    Gdiplus::Bitmap* pBmp = GetBitmapForState();
 
-    COLORREF curBg = clrBgOff;
-    if (m_state == SWITCH_ON) curBg = clrBgOn;
-    else if (m_state == SWITCH_WAITING) curBg = clrBgWait;
-
-    // Draw Pill Shape
-    CPen pen(PS_SOLID, 1, clrBorder);
-    CBrush brush(curBg);
-    CPen* pOldPen = dc.SelectObject(&pen);
-    CBrush* pOldBrush = dc.SelectObject(&brush);
-
-    int radius = rect.Height() / 2;
-    dc.RoundRect(rect, CPoint(radius * 2, radius * 2));
-
-    dc.SelectObject(pOldPen);
-    dc.SelectObject(pOldBrush);
-
-    // Draw Knob
-    // Calculate Knob Position
-    // Off: Left, On: Right. Waiting: Middle? Or Keep strictly Toggle behavior visually?
-    // "Switch" implies binary position. 
-    // If waiting, we might keep it at the "target" position or pulsing.
-    // Let's assume: OFF -> Left, ON -> Right. Waiting -> Maybe keep at the "To Be" position or Middle?
-    // Request says: "Switch turns green once speed set success". "Once closed... switch turns off".
-    // This implies the switch *position* might toggle immediately or reflect state.
-    // Let's align knob with state: OFF=Left, ON=Right. WAITING=Left (if starting) or Right (if stopping)?
-    // Actually, usually a switch moves to ON immediately by user interaction, but color indicates status.
-    // But since this is a complex state machine, let's put Knob on Left for OFF, Right for ON.
-    // For WAITING, let's keep it in the *target* state position but with Orange color?
-    // Or simpler: Left = OFF, Right = ON/WAITING(Startup), Left=WAITING(Shutdown)?
-    
-    // User logic: "Once open switch: execute start... wait... then speed... then Green".
-    // This implies during startup wait, it should look "Active" (Right) but Orange.
-    // During shutdown wait, it should look "Inactive" (Left) but Orange? 
-    // Or maybe just use the state.
-    
-    int knobPadding = 2;
-    int knobSize = rect.Height() - 2 * knobPadding;
-    CRect rectKnob;
-
-    if (m_state == SWITCH_OFF)
+    if (pBmp)
     {
-        // Left
-        rectKnob.SetRect(rect.left + knobPadding, rect.top + knobPadding, rect.left + knobPadding + knobSize, rect.top + knobPadding + knobSize);
+        Gdiplus::Graphics graphics(dc.GetSafeHdc());
+        graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+        graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+
+        const int imgW = static_cast<int>(pBmp->GetWidth());
+        const int imgH = static_cast<int>(pBmp->GetHeight());
+
+        if (imgW > 0 && imgH > 0)
+        {
+            double scale = (std::min)(static_cast<double>(rect.Width()) / imgW, static_cast<double>(rect.Height()) / imgH);
+            double drawW = imgW * scale;
+            double drawH = imgH * scale;
+            double offsetX = rect.left + (rect.Width() - drawW) / 2.0;
+            double offsetY = rect.top + (rect.Height() - drawH) / 2.0;
+
+            Gdiplus::RectF destRect(static_cast<Gdiplus::REAL>(offsetX), static_cast<Gdiplus::REAL>(offsetY),
+                static_cast<Gdiplus::REAL>(drawW), static_cast<Gdiplus::REAL>(drawH));
+
+            graphics.DrawImage(pBmp, destRect);
+
+            if (m_state == SWITCH_WAITING)
+            {
+                Gdiplus::Color maskColor(120, 0, 0, 0);
+                Gdiplus::SolidBrush maskBrush(maskColor);
+                graphics.FillRectangle(&maskBrush, destRect);
+            }
+        }
     }
     else
     {
-        // Right (ON or WAITING treated as 'Active' position for now, unless we want a middle state)
-        rectKnob.SetRect(rect.right - knobPadding - knobSize, rect.top + knobPadding, rect.right - knobPadding, rect.top + knobPadding + knobSize);
-    }
-
-    CPen penKnob(PS_SOLID, 1, RGB(200, 200, 200));
-    CBrush brushKnob(clrKnob);
-    pOldPen = dc.SelectObject(&penKnob);
-    pOldBrush = dc.SelectObject(&brushKnob);
-
-    dc.Ellipse(rectKnob);
-
-    dc.SelectObject(pOldPen);
-    dc.SelectObject(pOldBrush);
-    
-    // Optional: Draw the small dash on the "On" part background if space permits, like the image?
-    // The image shows a small dash on the left when ON.
-    if (m_state == SWITCH_ON || m_state == SWITCH_WAITING)
-    {
-        // Draw a small dash/rect on the left side
-        CRect rcMark;
-        int mw = 8; int mh = 3;
-        int mx = rect.left + radius - mw/2; 
-        int my = rect.top + rect.Height()/2 - mh/2;
-        rcMark.SetRect(mx, my, mx+mw, my+mh);
-        dc.FillSolidRect(&rcMark, RGB(200,255,200)); // Light Greenish mark
+        // Fallback to a simple rectangle to avoid blank control if PNG failed
+        dc.FillSolidRect(&rect, RGB(200, 200, 200));
     }
 }
