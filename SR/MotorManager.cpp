@@ -69,11 +69,10 @@ HANDLE MotorManager::GetHandleForNode(WORD nodeId) const
 
 void MotorManager::Disconnect()
 {
-	if (m_KeyHandle && m_SubKeyHandle)
-	{
-		// 尝试关闭所有设备，忽略错误
-		VCS_CloseAllDevices(&m_ulErrorCode);
-	}
+	
+	// 尝试关闭所有设备，忽略错误
+	VCS_CloseAllDevices(&m_ulErrorCode);
+
 	m_KeyHandle = nullptr;
 	m_SubKeyHandle = nullptr;
 }

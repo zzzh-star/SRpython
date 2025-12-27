@@ -445,9 +445,13 @@ void CSRDlg::LayoutUI()
 	int btnH = 34; 
 	int titleH = 26;
 	int pad = 8;
-	// Only 1 switch now, maybe adjust height or keep similar spacing? 
-	// Let's make it compact but nice. Header + Pad + Switch + Pad
-	int motorH = titleH + pad + btnH + pad; 
+
+	// Custom size for Motor Switch (Larger size 1.5x)
+	int switchBtnW = 84; // 56 * 1.5
+	int switchBtnH = 46; // 34 * 1.35 approx
+
+	// Height adjusted for larger switch
+	int motorH = titleH + pad + switchBtnH + pad;
 	m_rectCardMotor.SetRect(x, y, x + cardW, y + motorH);
 	
 	// Move Motor Switch
@@ -457,12 +461,11 @@ void CSRDlg::LayoutUI()
 		CWnd* p = GetDlgItem(id);
 		if(p) p->ShowWindow(SW_HIDE);
 	}
-	// Position new switch
+	// Position new switch (Right Aligned)
 	if (m_btnMotorSwitch.GetSafeHwnd()) {
-		int switchW = 56;
-		int switchX = m_rectCardMotor.left + (m_rectCardMotor.Width() - switchW) / 2;
+		int switchX = m_rectCardMotor.right - 12 - switchBtnW;
 		int switchY = m_rectCardMotor.top + titleH + pad;
-		m_btnMotorSwitch.SetWindowPos(NULL, switchX, switchY, switchW, btnH, SWP_NOZORDER);
+		m_btnMotorSwitch.SetWindowPos(NULL, switchX, switchY, switchBtnW, switchBtnH, SWP_NOZORDER);
 	}
 
 	// Haptic Card (Height for 3 buttons + header)
@@ -672,8 +675,31 @@ void CSRDlg::OnPaint()
 		}
 
 		// 4. Sidebar Cards (Title + Dark Content)
-		if (!m_rectCardMotor.IsRectEmpty())
+		if (!m_rectCardMotor.IsRectEmpty()) {
 			DrawCardWithTitle(dc, m_rectCardMotor, kRadius, _T("Motor Control"), m_clrSideCardTitle, m_clrSideCardBg, m_clrSideCardBorder, m_clrSidebarText);
+
+			// Draw "Motor Start" Label on Left
+			int nSavedDC = dc.SaveDC(); // Save DC state
+
+			// Re-calculate vertical center based on new switch height (46)
+			// Switch Top = m_rectCardMotor.top + 26 (title) + 8 (pad) = +34
+			// Switch Height = 46. Center = +34 + 23 = +57 from card top
+
+			CRect rcLabel = m_rectCardMotor;
+			rcLabel.top += 34;
+			rcLabel.bottom = rcLabel.top + 46; // Match switch height
+			rcLabel.left += 12; // Left Padding
+			rcLabel.right -= 100; // Avoid switch area (84 width + padding)
+
+			dc.SetBkMode(TRANSPARENT);
+			dc.SetTextColor(m_clrSidebarText);
+			dc.SelectObject(&m_fontSidebarBtn);
+
+			// Use Unicode Hex for "\xb5\xe7\xbb\xfa\xc6\xf4\xb6\xaf" to prevent encoding garble
+			dc.DrawText(L"\x7535\x673A\x542F\x52A8", &rcLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+			dc.RestoreDC(nSavedDC); // Restore DC state
+		}
 		
 		if (!m_rectCardHaptic.IsRectEmpty())
 			DrawCardWithTitle(dc, m_rectCardHaptic, kRadius, _T("Haptic Control"), m_clrSideCardTitle, m_clrSideCardBg, m_clrSideCardBorder, m_clrSidebarText);
@@ -1115,6 +1141,8 @@ void CSRDlg::OnDestroy()
 	if (m_pMotorManager)
 	{
 		m_pMotorManager->DisableMotors();
+		delete m_pMotorManager;
+		m_pMotorManager = nullptr;
 	}
 
 	dhdClose();
