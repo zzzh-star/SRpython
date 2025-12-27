@@ -99,6 +99,7 @@ public:
 
 	void LayoutUI();
 	void DrawRoundedRectFillBorder(CDC& dc, CRect rc, int radius, COLORREF fill, COLORREF border);
+	void DrawShadowedCard(CDC& dc, CRect rc, int radius, COLORREF bodyBg, COLORREF border);
 	void DrawCardWithTitle(CDC& dc, CRect rc, int radius, CString title, COLORREF titleBg, COLORREF bodyBg, COLORREF border, COLORREF titleText);
 	void DrawMainCardTitle(CDC& dc, CRect rc, CString title); // New helper for Main cards
 	CWnd* FindStaticByText(const CString& text);

@@ -154,7 +154,7 @@ CSRDlg::CSRDlg(CWnd* pParent /*=nullptr*/)
 	// --- Theme Color Initialization ---
 
 	// App BG
-	m_clrAppBg     = RGB(236, 239, 241); // Slightly darker Cool Gray (#ECEFF1)
+	m_clrAppBg     = RGB(224, 230, 235);
 
 	// Header
 	m_clrHdrTop    = RGB(16, 45, 70);
@@ -170,8 +170,8 @@ CSRDlg::CSRDlg(CWnd* pParent /*=nullptr*/)
 	m_clrSidebarText   = RGB(235, 240, 245);
 
 	// Main Cards
-	m_clrMainCardBg    = RGB(244, 246, 248); // Cool Gray
-	m_clrMainCardBorder= RGB(230, 235, 242); // Lighter border
+	m_clrMainCardBg    = RGB(248, 250, 252);
+	m_clrMainCardBorder= RGB(210, 220, 230);
 	m_clrMainText      = RGB(35, 40, 45);
 	m_clrSubText       = RGB(110, 120, 130);
 
@@ -615,6 +615,24 @@ void CSRDlg::DrawRoundedRectFillBorder(CDC& dc, CRect rc, int radius, COLORREF f
 	dc.SelectObject(oldBrush);
 }
 
+void CSRDlg::DrawShadowedCard(CDC& dc, CRect rc, int radius, COLORREF bodyBg, COLORREF border)
+{
+	// 1) Shadow
+	CRect sh = rc;
+	sh.OffsetRect(2, 3);
+	COLORREF shadow = RGB(200, 208, 215); 
+	CPen penS(PS_SOLID, 1, shadow);
+	CBrush brS(shadow);
+	CPen* oldPen = dc.SelectObject(&penS);
+	CBrush* oldBr = dc.SelectObject(&brS);
+	dc.RoundRect(sh, CPoint(radius, radius));
+	dc.SelectObject(oldPen);
+	dc.SelectObject(oldBr);
+
+	// 2) Card
+	DrawRoundedRectFillBorder(dc, rc, radius, bodyBg, border);
+}
+
 void CSRDlg::DrawCardWithTitle(CDC& dc, CRect rc, int radius, CString title, COLORREF titleBg, COLORREF bodyBg, COLORREF border, COLORREF titleText)
 {
 	// 1. Draw Body
@@ -745,17 +763,17 @@ void CSRDlg::OnPaint()
 		}
 
 		// 5. Main Cards (White)
-		if (!m_rectCardCamera.IsRectEmpty()) DrawRoundedRectFillBorder(dc, m_rectCardCamera, kRadius, m_clrMainCardBg, m_clrMainCardBorder);
+		if (!m_rectCardCamera.IsRectEmpty()) DrawShadowedCard(dc, m_rectCardCamera, kRadius, m_clrMainCardBg, m_clrMainCardBorder);
 		if (!m_rectCardMaster.IsRectEmpty()) {
-			DrawRoundedRectFillBorder(dc, m_rectCardMaster, kRadius, m_clrMainCardBg, m_clrMainCardBorder);
+			DrawShadowedCard(dc, m_rectCardMaster, kRadius, m_clrMainCardBg, m_clrMainCardBorder);
 			DrawMainCardTitle(dc, m_rectCardMaster, _T("Master Param"));
 		}
 		if (!m_rectCardRobot.IsRectEmpty()) {
-			DrawRoundedRectFillBorder(dc, m_rectCardRobot, kRadius, m_clrMainCardBg, m_clrMainCardBorder);
+			DrawShadowedCard(dc, m_rectCardRobot, kRadius, m_clrMainCardBg, m_clrMainCardBorder);
 			DrawMainCardTitle(dc, m_rectCardRobot, _T("Robot Param"));
 		}
 		if (!m_rectCardChart.IsRectEmpty()) {
-			DrawRoundedRectFillBorder(dc, m_rectCardChart, kRadius, m_clrMainCardBg, m_clrMainCardBorder);
+			DrawShadowedCard(dc, m_rectCardChart, kRadius, m_clrMainCardBg, m_clrMainCardBorder);
 			DrawMainCardTitle(dc, m_rectCardChart, _T("Force Feedback (N)"));
 		}
 	}
@@ -789,8 +807,8 @@ HBRUSH CSRDlg::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
 		id == IDC_EDIT_POSE || id == IDC_EDIT_BEND || id == IDC_EDIT_GRIP_ANGLE || id == IDC_EDIT_GRIP_MOTOR)
 	{
 		pDC->SetTextColor(m_clrMainText);
-		pDC->SetBkColor(RGB(255, 255, 255));
-		return (HBRUSH)GetStockObject(WHITE_BRUSH);
+		pDC->SetBkColor(m_clrMainCardBg);
+		return m_brushMainCardBg;
 	}
 
 	if (nCtlColor == CTLCOLOR_STATIC)
