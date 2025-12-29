@@ -620,7 +620,7 @@ void CSRDlg::DrawShadowedCard(CDC& dc, CRect rc, int radius, COLORREF bodyBg, CO
 	// 1) Shadow
 	CRect sh = rc;
 	sh.OffsetRect(2, 3);
-	COLORREF shadow = RGB(200, 208, 215); 
+	COLORREF shadow = RGB(200, 208, 215);
 	CPen penS(PS_SOLID, 1, shadow);
 	CBrush brS(shadow);
 	CPen* oldPen = dc.SelectObject(&penS);
