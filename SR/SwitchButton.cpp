@@ -73,6 +73,7 @@ CSwitchButton::~CSwitchButton()
 }
 
 BEGIN_MESSAGE_MAP(CSwitchButton, CButton)
+    ON_WM_ERASEBKGND()
     // ON_WM_LBUTTONUP() // Let the parent handle the click logic via BN_CLICKED, or handle here if we want internal toggling
 END_MESSAGE_MAP()
 
@@ -141,6 +142,11 @@ void CSwitchButton::OnLButtonUp(UINT nFlags, CPoint point)
     CButton::OnLButtonUp(nFlags, point);
 }
 
+BOOL CSwitchButton::OnEraseBkgnd(CDC* pDC)
+{
+    return TRUE; // Suppress default erasing to prevent flickering
+}
+
 void CSwitchButton::DrawItem(LPDRAWITEMSTRUCT lpDrawItemStruct)
 {
     CDC* pDC = CDC::FromHandle(lpDrawItemStruct->hDC);
@@ -180,13 +186,6 @@ void CSwitchButton::DrawItem(LPDRAWITEMSTRUCT lpDrawItemStruct)
                 static_cast<Gdiplus::REAL>(drawW), static_cast<Gdiplus::REAL>(drawH));
 
             graphics.DrawImage(pBmp, destRect);
-
-            if (m_state == SWITCH_WAITING)
-            {
-                Gdiplus::Color maskColor(120, 0, 0, 0);
-                Gdiplus::SolidBrush maskBrush(maskColor);
-                graphics.FillRectangle(&maskBrush, destRect);
-            }
         }
     }
     else

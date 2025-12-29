@@ -8,6 +8,7 @@
 #include "SensorManager.h"
 #include "CMSCOMM1.h"
 #include <opencv2/opencv.hpp>
+#include <thread>
 
 constexpr double kPI = 3.1415926;
 constexpr int kNumSegments = 4;
@@ -148,6 +149,9 @@ protected:
 
 	int maxon5_position = 0, maxon4_position = 0, maxon3_position = 0, maxon2_position = 0, maxon1_position = 0;
 
+	std::thread m_workerThread;
+	double m_dStartTime = 0.0;
+
 protected:
 	HICON m_hIcon;
 
@@ -163,6 +167,7 @@ protected:
 	afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);
 
 	afx_msg void OnTimer(UINT_PTR nIDEvent);
+	afx_msg LRESULT OnMotorInitComplete(WPARAM wParam, LPARAM lParam);
 
 	DECLARE_MESSAGE_MAP()
 

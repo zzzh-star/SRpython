@@ -32,6 +32,8 @@
 #include <unsupported/Eigen/CXX11/Tensor> 
 #include <Eigen/Dense> 
 
+#define WM_MOTOR_INIT_COMPLETE (WM_USER + 100)
+
 using namespace Eigen;
 using namespace std;
 
@@ -198,6 +200,8 @@ CSRDlg::CSRDlg(CWnd* pParent /*=nullptr*/)
 
 CSRDlg::~CSRDlg()
 {
+	if (m_workerThread.joinable()) m_workerThread.join();
+
 	if (m_camera.isOpened()) m_camera.release();
 	dhdClose();
 
@@ -250,6 +254,7 @@ BEGIN_MESSAGE_MAP(CSRDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BUTTON_SHUTH, &CSRDlg::OnClickedButtonShutH)
 	ON_BN_CLICKED(20001, &CSRDlg::OnClickedMotorSwitch)
 	ON_BN_CLICKED(20002, &CSRDlg::OnClickedHapticSwitch)
+	ON_MESSAGE(WM_MOTOR_INIT_COMPLETE, &CSRDlg::OnMotorInitComplete)
 END_MESSAGE_MAP()
 
 BOOL CSRDlg::OnInitDialog()
@@ -384,6 +389,7 @@ BOOL CSRDlg::OnInitDialog()
 	SetIcon(m_hIcon, FALSE);
 
 	t0 = dhdGetTime();
+	m_dStartTime = t0;
 
 	m_editMotorStatus.SetWindowText(_T("Disconnected"));
 	m_editHapticStatus.SetWindowText(_T("Disconnected"));
@@ -416,14 +422,14 @@ BOOL CSRDlg::OnInitDialog()
 		m_ChartCtrl.GetLegend()->SetHorizontalMode(false);
 
 		CChartStandardAxis* pBottomAxis = m_ChartCtrl.CreateStandardAxis(CChartCtrl::BottomAxis);
-		pBottomAxis->SetMinMax(0, 100);
+		pBottomAxis->SetMinMax(0, 20);
 		pBottomAxis->SetTextColor(m_clrSubText);
 		pBottomAxis->GetLabel()->SetText(_T("Time (s)"));
 		pBottomAxis->GetGrid()->SetVisible(true);
 		pBottomAxis->GetGrid()->SetColor(RGB(200, 200, 200));
 
 		CChartStandardAxis* pLeftAxis = m_ChartCtrl.CreateStandardAxis(CChartCtrl::LeftAxis);
-		pLeftAxis->SetMinMax(-0.1, 0.1); // Adjusted range for position data (TXDlg uses -0.1 to 0.1)
+		pLeftAxis->SetAutomaticMode(CChartAxis::FullAutomatic);
 		pLeftAxis->SetTextColor(m_clrSubText);
 		pLeftAxis->GetLabel()->SetText(_T("Position (mm/rel)")); // Changed label
 		pLeftAxis->GetGrid()->SetVisible(true);
@@ -448,8 +454,8 @@ BOOL CSRDlg::OnInitDialog()
 		m_pLineSeries[2]->SetName(_T("Pz (Fz)"));
 	}
 
-	// Initial Window Size (1100x850) and Center
-	SetWindowPos(NULL, 0, 0, 1100, 850, SWP_NOMOVE | SWP_NOZORDER);
+	// Initial Window Size (1200x850) and Center
+	SetWindowPos(NULL, 0, 0, 1200, 850, SWP_NOMOVE | SWP_NOZORDER);
 	CenterWindow();
 
 	LayoutUI();
@@ -580,7 +586,7 @@ void CSRDlg::LayoutUI()
 	x = kSidebarWidth + kCardGap;
 	y = kHeaderHeight + kCardGap;
 	int mainW = width - kSidebarWidth - 2 * kCardGap;
-	int rightColW = 280;
+	int rightColW = 360;
 	int camW = mainW - rightColW - kCardGap;
 
 	// Camera Card (Top Left)
@@ -967,29 +973,67 @@ void CSRDlg::OnBnClickedOk()
 
 void CSRDlg::OnClickedButtonStartM()
 {
-	state = 1;
+	if (m_workerThread.joinable()) m_workerThread.join();
 
-	if (!m_pMotorManager->Connect())
+	m_workerThread = std::thread([this]() {
+		if (!m_pMotorManager->Connect())
+		{
+			PostMessage(WM_MOTOR_INIT_COMPLETE, 0, m_pMotorManager->GetLastErrorCode());
+			return;
+		}
+
+		if (!m_pMotorManager->EnableMotors())
+		{
+			// Post Warning but success
+			PostMessage(WM_MOTOR_INIT_COMPLETE, 2, m_pMotorManager->GetLastErrorCode());
+			return;
+		}
+
+		PostMessage(WM_MOTOR_INIT_COMPLETE, 1, 0);
+	});
+}
+
+LRESULT CSRDlg::OnMotorInitComplete(WPARAM wParam, LPARAM lParam)
+{
+	if (m_workerThread.joinable()) m_workerThread.join();
+
+	if (wParam == 1 || wParam == 2) // Success or Warning
+	{
+		state = 1;
+		QueryPerformanceFrequency(&iFreq);
+		QueryPerformanceCounter(&iBegTime);
+
+		maxon_state = TRUE;
+		m_editMotorStatus.SetWindowText(_T("Connected"));
+		m_editMotorStatus.Invalidate();
+
+		if (wParam == 2)
+		{
+			CString strError;
+			strError.Format(_T("Failed to enable motors! Error: 0x%08X"), (DWORD)lParam);
+			AfxMessageBox(strError, MB_ICONWARNING);
+		}
+	}
+	else // Failure
 	{
 		CString strError;
-		strError.Format(_T("Can't open device! Error: 0x%08X"), m_pMotorManager->GetLastErrorCode());
+		strError.Format(_T("Can't open device! Error: 0x%08X"), (DWORD)lParam);
 		AfxMessageBox(strError, MB_ICONINFORMATION);
-		return;
+
+		maxon_state = FALSE;
+		m_editMotorStatus.SetWindowText(_T("Disconnected"));
+		m_editMotorStatus.Invalidate();
+
+		// Reset Switch if it was waiting
+		if (m_nMotorSwitchState == 1) // Waiting for Start
+		{
+			m_nMotorSwitchState = 0;
+			m_btnMotorSwitch.SetSwitchState(CSwitchButton::SWITCH_OFF);
+			KillTimer(3); // Stop the sequence timer
+		}
 	}
 
-	if (!m_pMotorManager->EnableMotors())
-	{
-		CString strError;
-		strError.Format(_T("Failed to enable motors! Error: 0x%08X"), m_pMotorManager->GetLastErrorCode());
-		AfxMessageBox(strError, MB_ICONWARNING);
-	}
-
-	QueryPerformanceFrequency(&iFreq);
-	QueryPerformanceCounter(&iBegTime);
-
-	maxon_state = TRUE;
-	m_editMotorStatus.SetWindowText(_T("Connected"));
-	m_editMotorStatus.Invalidate();
+	return 0;
 }
 
 void CSRDlg::OnClickedButtonShutM()
@@ -1209,9 +1253,14 @@ void CSRDlg::OnTimer(UINT_PTR nIDEvent)
 		// 2. Plot Relative Position Data
 		if (m_ChartCtrl.GetSafeHwnd())
 		{
-			m_pLineSeries[0]->AddPoint(t1, rel_px); // Plot X Deviation
-			m_pLineSeries[1]->AddPoint(t1, rel_py); // Plot Y Deviation
-			m_pLineSeries[2]->AddPoint(t1, rel_pz); // Plot Z Deviation
+			double plotTime = t1 - m_dStartTime;
+			m_pLineSeries[0]->AddPoint(plotTime, rel_px); // Plot X Deviation
+			m_pLineSeries[1]->AddPoint(plotTime, rel_py); // Plot Y Deviation
+			m_pLineSeries[2]->AddPoint(plotTime, rel_pz); // Plot Z Deviation
+
+			double minT = (plotTime > 20.0) ? (plotTime - 20.0) : 0.0;
+			double maxT = (plotTime > 20.0) ? plotTime : 20.0;
+			m_ChartCtrl.GetBottomAxis()->SetMinMax(minT, maxT);
 		}
 
 		// Update Sensor Data
@@ -1367,21 +1416,14 @@ void CSRDlg::OnClickedMotorSwitch()
 
 	if (m_nMotorSwitchState == 0) // OFF -> Turn ON
 	{
-		// 1. Start Motor
-		OnClickedButtonStartM();
-
-		// Check if start failed (if maxon_state is still false)
-		if (!maxon_state) {
-			m_nMotorSwitchState = 0;
-			m_btnMotorSwitch.SetSwitchState(CSwitchButton::SWITCH_OFF);
-			return;
-		}
-
-		// 2. Enter Waiting State (Orange)
+		// 1. Enter Waiting State (Orange) IMMEDIATELY
 		m_nMotorSwitchState = 1; // Start Waiting
 		m_btnMotorSwitch.SetSwitchState(CSwitchButton::SWITCH_WAITING);
 
-		// Start Timer to check progress
+		// 2. Start Motor Async
+		OnClickedButtonStartM();
+
+		// 3. Start Timer to check progress (it will wait for maxon_state to become TRUE)
 		m_nMotorTimer = SetTimer(3, 100, NULL); // Timer ID 3 for Motor Sequence
 	}
 	else if (m_nMotorSwitchState == 3) // ON -> Turn OFF
