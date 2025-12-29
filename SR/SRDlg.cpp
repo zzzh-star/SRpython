@@ -1,5 +1,5 @@
 // SRDlg.cpp : implementation file
-//v1.2 Layout Refinement
+//v1.3 Data Source Correction (Match TXDlg Logic)
 
 #include "pch.h"
 #include "framework.h"
@@ -78,11 +78,11 @@ void DrawMatToPic(cv::Mat& img, CStatic& pic)
 
 	cv::Mat resized;
 	// Align width to multiple of 4 to ensure stride is 4-byte aligned (required by GDI)
-	int alignedW = rect.Width() & ~3; 
+	int alignedW = rect.Width() & ~3;
 	if (alignedW < 4) alignedW = 4;
-	
+
 	cv::resize(img, resized, cv::Size(alignedW, rect.Height()));
-	
+
 	// Ensure 24-bit BGR and continuous for StretchDIBits
 	if (resized.type() != CV_8UC3 || !resized.isContinuous())
 	{
@@ -90,7 +90,7 @@ void DrawMatToPic(cv::Mat& img, CStatic& pic)
 		if (resized.channels() == 1) cv::cvtColor(resized, temp, cv::COLOR_GRAY2BGR);
 		else if (resized.channels() == 4) cv::cvtColor(resized, temp, cv::COLOR_BGRA2BGR);
 		else resized.copyTo(temp); // Make continuous
-		
+
 		resized = temp;
 	}
 
@@ -98,7 +98,7 @@ void DrawMatToPic(cv::Mat& img, CStatic& pic)
 	memset(&bitInfo, 0, sizeof(BITMAPINFO));
 	bitInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
 	bitInfo.bmiHeader.biWidth = resized.cols;
-	bitInfo.bmiHeader.biHeight = -resized.rows; 
+	bitInfo.bmiHeader.biHeight = -resized.rows;
 	bitInfo.bmiHeader.biPlanes = 1;
 	bitInfo.bmiHeader.biBitCount = 24;
 	bitInfo.bmiHeader.biCompression = BI_RGB;
@@ -154,30 +154,30 @@ CSRDlg::CSRDlg(CWnd* pParent /*=nullptr*/)
 	// --- Theme Color Initialization ---
 
 	// App BG
-	m_clrAppBg     = RGB(224, 230, 235);
+	m_clrAppBg = RGB(224, 230, 235);
 
 	// Header
-	m_clrHdrTop    = RGB(16, 45, 70);
+	m_clrHdrTop = RGB(16, 45, 70);
 	m_clrHdrBottom = RGB(24, 72, 110);
-	m_clrHdrText   = RGB(255, 255, 255);
-	m_clrHdrLine   = RGB(0, 188, 212);
+	m_clrHdrText = RGB(255, 255, 255);
+	m_clrHdrLine = RGB(0, 188, 212);
 
 	// Sidebar
-	m_clrSidebarBg     = RGB(43, 56, 66);
+	m_clrSidebarBg = RGB(43, 56, 66);
 	m_clrSideCardTitle = RGB(25, 30, 34);
-	m_clrSideCardBg    = RGB(55, 67, 76);
-	m_clrSideCardBorder= RGB(70, 85, 95);
-	m_clrSidebarText   = RGB(235, 240, 245);
+	m_clrSideCardBg = RGB(55, 67, 76);
+	m_clrSideCardBorder = RGB(70, 85, 95);
+	m_clrSidebarText = RGB(235, 240, 245);
 
 	// Main Cards
-	m_clrMainCardBg    = RGB(248, 250, 252);
-	m_clrMainCardBorder= RGB(210, 220, 230);
-	m_clrMainText      = RGB(35, 40, 45);
-	m_clrSubText       = RGB(110, 120, 130);
+	m_clrMainCardBg = RGB(248, 250, 252);
+	m_clrMainCardBorder = RGB(210, 220, 230);
+	m_clrMainText = RGB(35, 40, 45);
+	m_clrSubText = RGB(110, 120, 130);
 
 	// Status
-	m_clrOkGreen    = RGB(46, 204, 113);
-	m_clrDangerRed  = RGB(255, 59, 48);
+	m_clrOkGreen = RGB(46, 204, 113);
+	m_clrDangerRed = RGB(255, 59, 48);
 
 	// Create Brushes
 	m_brushAppBg.CreateSolidBrush(m_clrAppBg);
@@ -257,7 +257,7 @@ BOOL CSRDlg::OnInitDialog()
 	CDialogEx::OnInitDialog();
 
 	// Init Sensor Comm (ID 20004)
-	CRect rc(0,0,0,0);
+	CRect rc(0, 0, 0, 0);
 	if (m_cmsComm.Create(NULL, 0, rc, this, 20004))
 	{
 		m_SensorManager.AttachComm(&m_cmsComm);
@@ -311,32 +311,33 @@ BOOL CSRDlg::OnInitDialog()
 	}
 
 	// Create Switch Button
-	m_btnMotorSwitch.Create(_T(""), WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, CRect(0,0,0,0), this, 20001);
+	m_btnMotorSwitch.Create(_T(""), WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, CRect(0, 0, 0, 0), this, 20001);
 	m_btnMotorSwitch.SetPngResources(IDR_PNG_SWITCH_OFF, IDR_PNG_SWITCH_ON);
 	m_btnMotorSwitch.SetBackgroundColor(m_clrSideCardBg);
 
-	m_btnHapticSwitch.Create(_T(""), WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, CRect(0,0,0,0), this, 20002);
+	m_btnHapticSwitch.Create(_T(""), WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, CRect(0, 0, 0, 0), this, 20002);
 	m_btnHapticSwitch.SetPngResources(IDR_PNG_SWITCH_OFF, IDR_PNG_SWITCH_ON);
 	m_btnHapticSwitch.SetBackgroundColor(m_clrSideCardBg);
 
 	// Create Sensor Switch (20003)
-	m_btnSensorSwitch.Create(_T(""), WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, CRect(0,0,0,0), this, 20003);
+	m_btnSensorSwitch.Create(_T(""), WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, CRect(0, 0, 0, 0), this, 20003);
 	m_btnSensorSwitch.SetPngResources(IDR_PNG_SWITCH_OFF, IDR_PNG_SWITCH_ON);
 	m_btnSensorSwitch.SetBackgroundColor(m_clrSideCardBg);
-	
+
 	// Create Sensor Label
-	m_lblSensor.Create(_T("传感器:"), WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE, CRect(0,0,0,0), this);
-	
+	m_lblSensor.Create(_T("传感器:"), WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE, CRect(0, 0, 0, 0), this);
+
 	// Copy font from "End Force" label to ensure exact match
 	CWnd* pEndForce = FindStaticByText(_T("末端力:"));
 	if (pEndForce) {
 		m_lblSensor.SetFont(pEndForce->GetFont());
-	} else {
+	}
+	else {
 		m_lblSensor.SetFont(&m_fontMain);
 	}
 
 	// Create Sensor Data Edit (ID 20005)
-	m_editSensorData.Create(ES_AUTOHSCROLL | ES_READONLY | WS_CHILD | WS_VISIBLE, CRect(0,0,0,0), this, 20005);
+	m_editSensorData.Create(ES_AUTOHSCROLL | ES_READONLY | WS_CHILD | WS_VISIBLE, CRect(0, 0, 0, 0), this, 20005);
 	m_editSensorData.SetFont(&m_fontLabel); // Or fontMain? Others use fontLabel for values? No, others use Default? 
 	// Wait, in OnInitDialog, the others don't get SetFont(&m_fontLabel). They get dialog default. 
 	// But Edit controls might need it. Let's stick to fontLabel for values or fontMain. 
@@ -351,15 +352,15 @@ BOOL CSRDlg::OnInitDialog()
 
 	// Hide old GroupBoxes and Titles
 	const TCHAR* gbTitles[] = { _T("电机控制"), _T("主手控制"), _T("摄像头画面"), _T("控制参数"), _T("末端力实时曲线"), _T("Motor"), _T("Haptic"), _T("Camera View"), _T("Master Param"), _T("Robot Param"), _T("Force Feedback (N)"), NULL };
-	for (int i=0; gbTitles[i]; ++i) {
+	for (int i = 0; gbTitles[i]; ++i) {
 		CWnd* pWnd = FindStaticByText(gbTitles[i]);
 		if (pWnd) pWnd->ShowWindow(SW_HIDE);
 	}
 	// Hide static backgrounds
 	UINT oldStaticIds[] = { 1019, 1020, 1021, 1022, 1023, 1024, 1025 };
-	for(UINT id : oldStaticIds) {
+	for (UINT id : oldStaticIds) {
 		CWnd* pWnd = GetDlgItem(id);
-		if(pWnd) pWnd->ShowWindow(SW_HIDE);
+		if (pWnd) pWnd->ShowWindow(SW_HIDE);
 	}
 
 	// Setup System Menu
@@ -401,12 +402,12 @@ BOOL CSRDlg::OnInitDialog()
 	// Chart Init
 	if (!m_ChartCtrl.GetSafeHwnd())
 	{
-		CRect rect(0,0,100,100); 
+		CRect rect(0, 0, 100, 100);
 		m_ChartCtrl.Create(this, rect, 2000, WS_CHILD | WS_VISIBLE);
 		m_ChartCtrl.EnableRefresh(true);
-		m_ChartCtrl.GetTitle()->AddString(_T("")); 
+		m_ChartCtrl.GetTitle()->AddString(_T(""));
 		m_ChartCtrl.SetBackColor(m_clrMainCardBg);
-		m_ChartCtrl.SetBorderColor(m_clrMainCardBg); 
+		m_ChartCtrl.SetBorderColor(m_clrMainCardBg);
 		m_ChartCtrl.SetEdgeType(0);
 
 		// Enable Legend
@@ -422,31 +423,31 @@ BOOL CSRDlg::OnInitDialog()
 		pBottomAxis->GetGrid()->SetColor(RGB(200, 200, 200));
 
 		CChartStandardAxis* pLeftAxis = m_ChartCtrl.CreateStandardAxis(CChartCtrl::LeftAxis);
-		pLeftAxis->SetMinMax(-10, 10); // Set default range to ensure ticks/grid appear
+		pLeftAxis->SetMinMax(-0.1, 0.1); // Adjusted range for position data (TXDlg uses -0.1 to 0.1)
 		pLeftAxis->SetTextColor(m_clrSubText);
-		pLeftAxis->GetLabel()->SetText(_T("Force (N)"));
+		pLeftAxis->GetLabel()->SetText(_T("Position (mm/rel)")); // Changed label
 		pLeftAxis->GetGrid()->SetVisible(true);
 		pLeftAxis->GetGrid()->SetColor(RGB(200, 200, 200));
 
-		// Fx: Blue
+		// Fx (Position X): Blue
 		m_pLineSeries[0] = m_ChartCtrl.CreateLineSerie();
-		m_pLineSeries[0]->SetColor(RGB(11, 92, 173)); 
+		m_pLineSeries[0]->SetColor(RGB(11, 92, 173));
 		m_pLineSeries[0]->SetWidth(2);
-		m_pLineSeries[0]->SetName(_T("Fx"));
+		m_pLineSeries[0]->SetName(_T("Px (Fx)"));
 
-		// Fy: Green
+		// Fy (Position Y): Green
 		m_pLineSeries[1] = m_ChartCtrl.CreateLineSerie();
 		m_pLineSeries[1]->SetColor(RGB(46, 204, 113));
 		m_pLineSeries[1]->SetWidth(2);
-		m_pLineSeries[1]->SetName(_T("Fy"));
+		m_pLineSeries[1]->SetName(_T("Py (Fy)"));
 
-		// Fz: Orange
+		// Fz (Position Z): Orange
 		m_pLineSeries[2] = m_ChartCtrl.CreateLineSerie();
 		m_pLineSeries[2]->SetColor(RGB(245, 165, 36));
 		m_pLineSeries[2]->SetWidth(2);
-		m_pLineSeries[2]->SetName(_T("Fz"));
+		m_pLineSeries[2]->SetName(_T("Pz (Fz)"));
 	}
-	
+
 	// Initial Window Size (1100x850) and Center
 	SetWindowPos(NULL, 0, 0, 1100, 850, SWP_NOMOVE | SWP_NOZORDER);
 	CenterWindow();
@@ -496,12 +497,12 @@ void CSRDlg::LayoutUI()
 {
 	CRect clientRect;
 	GetClientRect(&clientRect);
-	
+
 	if (clientRect.IsRectEmpty()) return;
 
 	int width = clientRect.Width();
 	int height = clientRect.Height();
-	
+
 	// Calc Layout Areas
 	m_rectSidebar.SetRect(0, kHeaderHeight, kSidebarWidth, height);
 	m_rectMainArea.SetRect(kSidebarWidth, kHeaderHeight, width, height);
@@ -510,9 +511,9 @@ void CSRDlg::LayoutUI()
 	int x = kSidebarPad;
 	int y = kHeaderHeight + kCardGap;
 	int cardW = kSidebarWidth - 2 * kSidebarPad;
-	
+
 	// Motor Card (Height for 1 Switch + header)
-	int btnH = 34; 
+	int btnH = 34;
 	int titleH = 26;
 	int pad = 8;
 
@@ -523,13 +524,13 @@ void CSRDlg::LayoutUI()
 	// Height adjusted for larger switch
 	int motorH = titleH + pad + switchBtnH + pad;
 	m_rectCardMotor.SetRect(x, y, x + cardW, y + motorH);
-	
+
 	// Move Motor Switch
 	// Hide old buttons
 	UINT motorBtns[] = { IDC_BUTTON_STARTM, IDC_BUTTON_SPEEDM, IDC_BUTTON_ZEROM, IDC_BUTTON_SHUTM };
-	for(UINT id : motorBtns) {
+	for (UINT id : motorBtns) {
 		CWnd* p = GetDlgItem(id);
-		if(p) p->ShowWindow(SW_HIDE);
+		if (p) p->ShowWindow(SW_HIDE);
 	}
 	// Position new switch (Right Aligned)
 	if (m_btnMotorSwitch.GetSafeHwnd()) {
@@ -541,14 +542,14 @@ void CSRDlg::LayoutUI()
 	// Haptic Card (Height adjusted for Switch, match Motor Card)
 	y = m_rectCardMotor.bottom + kCardGap;
 	// Use same height as Motor card since it's just one switch
-	int hapticH = m_rectCardMotor.Height(); 
+	int hapticH = m_rectCardMotor.Height();
 	m_rectCardHaptic.SetRect(x, y, x + cardW, y + hapticH);
 
 	// Hide Old Haptic Buttons
 	UINT hapticBtns[] = { IDC_BUTTON_STARTH, IDC_BUTTON_ZEROH, IDC_BUTTON_SHUTH };
-	for(UINT id : hapticBtns) {
+	for (UINT id : hapticBtns) {
 		CWnd* p = GetDlgItem(id);
-		if(p) p->ShowWindow(SW_HIDE);
+		if (p) p->ShowWindow(SW_HIDE);
 	}
 
 	// Position new Haptic switch (Right Aligned)
@@ -557,21 +558,21 @@ void CSRDlg::LayoutUI()
 		int switchY = m_rectCardHaptic.top + titleH + pad;
 		m_btnHapticSwitch.SetWindowPos(NULL, switchX, switchY, switchBtnW, switchBtnH, SWP_NOZORDER);
 	}
-	
+
 	// Sensor Control Card
 	y = m_rectCardHaptic.bottom + kCardGap;
 	int sensorH = hapticH; // Same height
 	m_rectCardSensor.SetRect(x, y, x + cardW, y + sensorH);
-	
+
 	if (m_btnSensorSwitch.GetSafeHwnd()) {
 		int switchX = m_rectCardSensor.right - 12 - switchBtnW;
 		int switchY = m_rectCardSensor.top + titleH + pad;
 		m_btnSensorSwitch.SetWindowPos(NULL, switchX, switchY, switchBtnW, switchBtnH, SWP_NOZORDER);
 	}
-	
+
 	// Exit Button
 	CWnd* pExit = GetDlgItem(IDCANCEL);
-	if(pExit) {
+	if (pExit) {
 		pExit->SetWindowPos(NULL, kSidebarPad, height - kSidebarPad - btnH, cardW, btnH, SWP_NOZORDER);
 	}
 
@@ -581,21 +582,21 @@ void CSRDlg::LayoutUI()
 	int mainW = width - kSidebarWidth - 2 * kCardGap;
 	int rightColW = 280;
 	int camW = mainW - rightColW - kCardGap;
-	
+
 	// Camera Card (Top Left)
 	int row1H = 330; // Camera height increased to match expanded right column
 	m_rectCardCamera.SetRect(x, y, x + camW, y + row1H);
-	
+
 	// Move Camera
-	if(m_picCamera.GetSafeHwnd()) {
-		m_picCamera.SetWindowPos(NULL, m_rectCardCamera.left + 2, m_rectCardCamera.top + 2, m_rectCardCamera.Width()-4, m_rectCardCamera.Height()-4, SWP_NOZORDER);
+	if (m_picCamera.GetSafeHwnd()) {
+		m_picCamera.SetWindowPos(NULL, m_rectCardCamera.left + 2, m_rectCardCamera.top + 2, m_rectCardCamera.Width() - 4, m_rectCardCamera.Height() - 4, SWP_NOZORDER);
 	}
-	
+
 	// Master Param Card (Top Right)
 	// Reduced height to 155 to match content and Robot card
 	int cardH = 155;
 	m_rectCardMaster.SetRect(x + camW + kCardGap, y, x + camW + kCardGap + rightColW, y + cardH);
-	
+
 	// Move Master Params
 	{
 		int labelW = 70;
@@ -605,17 +606,17 @@ void CSRDlg::LayoutUI()
 		int cxE = cxL + labelW + 10;
 		int cwE = m_rectCardMaster.right - 12 - cxE;
 		int cy = startY;
-		
+
 		// Hide Status Rows (Motor/Haptic Status)
 		CWnd* pMotorL = FindStaticByText(_T("电机:"));
-		if(pMotorL) pMotorL->ShowWindow(SW_HIDE);
+		if (pMotorL) pMotorL->ShowWindow(SW_HIDE);
 		CWnd* pMotorE = GetDlgItem(IDC_EDIT_MOTOR_STATUS);
-		if(pMotorE) pMotorE->ShowWindow(SW_HIDE);
-		
+		if (pMotorE) pMotorE->ShowWindow(SW_HIDE);
+
 		CWnd* pHapticL = FindStaticByText(_T("主手:"));
-		if(pHapticL) pHapticL->ShowWindow(SW_HIDE);
+		if (pHapticL) pHapticL->ShowWindow(SW_HIDE);
 		CWnd* pHapticE = GetDlgItem(IDC_EDIT_HAPTIC_STATUS);
-		if(pHapticE) pHapticE->ShowWindow(SW_HIDE);
+		if (pHapticE) pHapticE->ShowWindow(SW_HIDE);
 
 		struct Item { const TCHAR* l; UINT id; };
 		Item items[] = {
@@ -624,18 +625,18 @@ void CSRDlg::LayoutUI()
 			{_T("主手编码:"), IDC_EDIT_MASTER_ENC},
 			{_T("末端力:"), IDC_EDIT_MASTER_FORCE},
 			// New Sensor Data Row
-			{_T("传感器:"), 20005} 
+			{_T("传感器:"), 20005}
 		};
-		for(auto& it : items) {
+		for (auto& it : items) {
 			CWnd* pL = FindStaticByText(it.l);
-			if(!pL && _tcscmp(it.l, _T("主手编码:"))==0) pL = FindStaticByText(_T("主手编码器:"));
-			
-			if(pL) {
+			if (!pL && _tcscmp(it.l, _T("主手编码:")) == 0) pL = FindStaticByText(_T("主手编码器:"));
+
+			if (pL) {
 				pL->ShowWindow(SW_SHOW); // Ensure visible
-				pL->SetWindowPos(NULL, cxL, cy+2, labelW, 16, SWP_NOZORDER);
+				pL->SetWindowPos(NULL, cxL, cy + 2, labelW, 16, SWP_NOZORDER);
 			}
 			CWnd* pE = GetDlgItem(it.id);
-			if(pE) {
+			if (pE) {
 				pE->ShowWindow(SW_SHOW); // Ensure visible
 				pE->SetWindowPos(NULL, cxE, cy, cwE, 20, SWP_NOZORDER);
 			}
@@ -646,7 +647,7 @@ void CSRDlg::LayoutUI()
 	// Robot Param Card (Middle Right)
 	// Match height with Master Card
 	m_rectCardRobot.SetRect(m_rectCardMaster.left, m_rectCardMaster.bottom + kCardGap, m_rectCardMaster.right, m_rectCardMaster.bottom + kCardGap + cardH);
-	
+
 	// Move Robot Params
 	{
 		int labelW = 70;
@@ -656,7 +657,7 @@ void CSRDlg::LayoutUI()
 		int cxE = cxL + labelW + 10;
 		int cwE = m_rectCardRobot.right - 12 - cxE;
 		int cy = startY;
-		
+
 		struct Item { const TCHAR* l; UINT id; };
 		Item items[] = {
 			{_T("空间位姿:"), IDC_EDIT_POSE},
@@ -664,11 +665,11 @@ void CSRDlg::LayoutUI()
 			{_T("夹钳角度:"), IDC_EDIT_GRIP_ANGLE},
 			{_T("夹钳电机:"), IDC_EDIT_GRIP_MOTOR}
 		};
-		for(auto& it : items) {
+		for (auto& it : items) {
 			CWnd* pL = FindStaticByText(it.l);
-			if(pL) pL->SetWindowPos(NULL, cxL, cy+2, labelW, 16, SWP_NOZORDER);
+			if (pL) pL->SetWindowPos(NULL, cxL, cy + 2, labelW, 16, SWP_NOZORDER);
 			CWnd* pE = GetDlgItem(it.id);
-			if(pE) pE->SetWindowPos(NULL, cxE, cy, cwE, 20, SWP_NOZORDER);
+			if (pE) pE->SetWindowPos(NULL, cxE, cy, cwE, 20, SWP_NOZORDER);
 			cy += rowH;
 		}
 	}
@@ -686,7 +687,7 @@ void CSRDlg::LayoutUI()
 		chartArea.DeflateRect(12, 12);
 		m_ChartCtrl.SetWindowPos(NULL, chartArea.left, chartArea.top, chartArea.Width(), chartArea.Height(), SWP_NOZORDER);
 	}
-	
+
 	Invalidate(); // Redraw
 }
 
@@ -723,26 +724,26 @@ void CSRDlg::DrawCardWithTitle(CDC& dc, CRect rc, int radius, CString title, COL
 {
 	// 1. Draw Body
 	DrawRoundedRectFillBorder(dc, rc, radius, bodyBg, border);
-	
+
 	// 2. Draw Title Header
 	CRect rcHeader = rc;
 	rcHeader.bottom = rcHeader.top + 26;
-	
+
 	// Create Region for Top Round Rect
 	CRgn rgn;
 	rgn.CreateRoundRectRgn(rc.left, rc.top, rc.right, rc.bottom, radius, radius);
-	
+
 	// Clip to Header area
 	dc.SelectClipRgn(&rgn);
 	dc.FillSolidRect(&rcHeader, titleBg);
-	
+
 	// Draw Title Text
 	dc.SetBkMode(TRANSPARENT);
 	dc.SetTextColor(titleText);
 	dc.SelectObject(&m_fontLabel);
 	rcHeader.left += 10;
 	dc.DrawText(title, &rcHeader, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-	
+
 	dc.SelectClipRgn(NULL);
 }
 
@@ -825,12 +826,12 @@ void CSRDlg::OnPaint()
 
 			dc.RestoreDC(nSavedDC); // Restore DC state
 		}
-		
+
 		if (!m_rectCardHaptic.IsRectEmpty()) {
 			DrawCardWithTitle(dc, m_rectCardHaptic, kRadius, _T("Haptic Control"), m_clrSideCardTitle, m_clrSideCardBg, m_clrSideCardBorder, m_clrSidebarText);
-		
+
 			// Draw "Master Start" Label on Left
-			int nSavedDC = dc.SaveDC(); 
+			int nSavedDC = dc.SaveDC();
 
 			CRect rcLabel = m_rectCardHaptic;
 			rcLabel.top += 34; // header + pad
@@ -847,12 +848,12 @@ void CSRDlg::OnPaint()
 
 			dc.RestoreDC(nSavedDC);
 		}
-		
+
 		// Draw Sensor Card
 		if (!m_rectCardSensor.IsRectEmpty()) {
 			DrawCardWithTitle(dc, m_rectCardSensor, kRadius, _T("Sensor Control"), m_clrSideCardTitle, m_clrSideCardBg, m_clrSideCardBorder, m_clrSidebarText);
 
-			int nSavedDC = dc.SaveDC(); 
+			int nSavedDC = dc.SaveDC();
 			CRect rcLabel = m_rectCardSensor;
 			rcLabel.top += 34;
 			rcLabel.bottom = rcLabel.top + 46;
@@ -894,7 +895,7 @@ BOOL CSRDlg::OnEraseBkgnd(CDC* pDC)
 HBRUSH CSRDlg::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
 {
 	int id = pWnd->GetDlgCtrlID();
-	
+
 	// Handle Status Edits (ReadOnly usually sends CTLCOLOR_STATIC)
 	if (id == IDC_EDIT_MOTOR_STATUS || id == IDC_EDIT_HAPTIC_STATUS)
 	{
@@ -922,18 +923,19 @@ HBRUSH CSRDlg::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
 	if (nCtlColor == CTLCOLOR_STATIC)
 	{
 		if (id == IDC_STATIC_CAMERA) return CDialogEx::OnCtlColor(pDC, pWnd, nCtlColor);
-		
+
 		// Transparent Labels
 		pDC->SetBkMode(TRANSPARENT);
-		
+
 		// Determine color based on location (Sidebar vs Main)
-		CRect r; 
-		pWnd->GetWindowRect(&r); 
+		CRect r;
+		pWnd->GetWindowRect(&r);
 		ScreenToClient(&r);
-		
+
 		if (r.left < kSidebarWidth) {
 			pDC->SetTextColor(m_clrSidebarText);
-		} else {
+		}
+		else {
 			pDC->SetTextColor(m_clrMainText);
 		}
 		return (HBRUSH)GetStockObject(NULL_BRUSH);
@@ -1113,11 +1115,11 @@ void CSRDlg::OnTimer(UINT_PTR nIDEvent)
 			{
 				// Execute Speed Setting
 				OnClickedButtonSpeedM();
-				
+
 				// "Once speed set success -> Green"
 				// SpeedM is also synchronous. If it returns/finishes, we assume success or check errors.
 				// Let's assume success for now.
-				
+
 				m_nMotorSwitchState = 3; // ON
 				m_btnMotorSwitch.SetSwitchState(CSwitchButton::SWITCH_ON);
 				KillTimer(3);
@@ -1136,17 +1138,17 @@ void CSRDlg::OnTimer(UINT_PTR nIDEvent)
 			// But we saw `maxon5_position` etc variables?
 			// Let's just use a timeout for safety (e.g. 3 seconds) or if we had position feedback.
 			// User mentioned "Refer to Zero Button", which just calls MoveToPosition.
-			
+
 			static int zeroWaitTick = 0;
 			zeroWaitTick++;
-			
+
 			// Simple wait 2 seconds (20 * 100ms)
-			if (zeroWaitTick > 20) 
+			if (zeroWaitTick > 20)
 			{
 				zeroWaitTick = 0;
 				// Execute Shut
 				OnClickedButtonShutM();
-				
+
 				m_nMotorSwitchState = 0; // OFF
 				m_btnMotorSwitch.SetSwitchState(CSwitchButton::SWITCH_OFF);
 				KillTimer(3);
@@ -1187,13 +1189,31 @@ void CSRDlg::OnTimer(UINT_PTR nIDEvent)
 		if (dhdGetForce(&fx, &fy, &fz) < DHD_NO_ERROR) {
 		}
 
+		// *** CRITICAL FIX FOR USER: Use Relative Position Data instead of Force Data ***
+		// This matches logic in TXDlg.cpp where chart plots "rel_px" despite being labeled "Fx"
+
+		// 1. Calculate Relative Position FIRST (if Ning/Zeroed is active)
+		if (Ning)
+		{
+			rel_px = px - ref_px;
+			rel_py = py - ref_py;
+			rel_pz = pz - ref_pz;
+		}
+		else
+		{
+			rel_px = 0;
+			rel_py = 0;
+			rel_pz = 0;
+		}
+
+		// 2. Plot Relative Position Data
 		if (m_ChartCtrl.GetSafeHwnd())
 		{
-			m_pLineSeries[0]->AddPoint(t1, fx);
-			m_pLineSeries[1]->AddPoint(t1, fy);
-			m_pLineSeries[2]->AddPoint(t1, fz);
+			m_pLineSeries[0]->AddPoint(t1, rel_px); // Plot X Deviation
+			m_pLineSeries[1]->AddPoint(t1, rel_py); // Plot Y Deviation
+			m_pLineSeries[2]->AddPoint(t1, rel_pz); // Plot Z Deviation
 		}
-		
+
 		// Update Sensor Data
 		if (m_nSensorSwitchState == 1)
 		{
@@ -1212,14 +1232,14 @@ void CSRDlg::OnTimer(UINT_PTR nIDEvent)
 		strUI.Format(_T("%d, %d, %d, %d, %d, %d"), enc[0], enc[1], enc[2], enc[3], enc[4], enc[5]);
 		m_editMasterEnc.SetWindowText(strUI);
 
-		strUI.Format(_T("Fx: %.2f  Fy: %.2f  Fz: %.2f"), fx, fy, fz);
+		// 3. Update "End Force" Text to show Relative Position Data (matching the chart logic)
+		// TXDlg.cpp treated rel_px as the key "feedback" value.
+		strUI.Format(_T("Fx: %.3f  Fy: %.3f  Fz: %.3f"), rel_px, rel_py, rel_pz);
 		m_editMasterForce.SetWindowText(strUI);
 
 		if (Ning)
 		{
-			rel_px = px - ref_px;
-			rel_py = py - ref_py;
-			rel_pz = pz - ref_pz;
+			// (Redundant calculation removed since we did it above, but logic continues...)
 
 			int encnew = enc[6] - offset_enc0;
 			if (encnew < 0) encnew = 0;
@@ -1344,12 +1364,12 @@ void CSRDlg::OnDestroy()
 void CSRDlg::OnClickedMotorSwitch()
 {
 	// 0: OFF, 1: STARTING (Wait Start), 2: CONFIGURING (Wait Speed), 3: ON, 4: ZEROING (Wait Zero), 5: STOPPING (Wait Disable)
-	
+
 	if (m_nMotorSwitchState == 0) // OFF -> Turn ON
 	{
 		// 1. Start Motor
-		OnClickedButtonStartM(); 
-		
+		OnClickedButtonStartM();
+
 		// Check if start failed (if maxon_state is still false)
 		if (!maxon_state) {
 			m_nMotorSwitchState = 0;
@@ -1360,15 +1380,15 @@ void CSRDlg::OnClickedMotorSwitch()
 		// 2. Enter Waiting State (Orange)
 		m_nMotorSwitchState = 1; // Start Waiting
 		m_btnMotorSwitch.SetSwitchState(CSwitchButton::SWITCH_WAITING);
-		
+
 		// Start Timer to check progress
 		m_nMotorTimer = SetTimer(3, 100, NULL); // Timer ID 3 for Motor Sequence
 	}
 	else if (m_nMotorSwitchState == 3) // ON -> Turn OFF
 	{
 		// 1. Start Zeroing
-		OnClickedButtonZeroM(); 
-		
+		OnClickedButtonZeroM();
+
 		// 2. Enter Waiting State (Orange) - Waiting for Zeroing
 		m_nMotorSwitchState = 4; // Zeroing
 		m_btnMotorSwitch.SetSwitchState(CSwitchButton::SWITCH_WAITING);
