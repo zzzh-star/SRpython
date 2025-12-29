@@ -227,6 +227,10 @@ void CSRDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_STATIC_CAMERA, m_picCamera);
 }
 
+BEGIN_EVENTSINK_MAP(CSRDlg, CDialogEx)
+	ON_EVENT(CSRDlg, 20004, 1, OnCommEvent, VTS_NONE)
+END_EVENTSINK_MAP()
+
 BEGIN_MESSAGE_MAP(CSRDlg, CDialogEx)
 	ON_WM_SYSCOMMAND()
 	ON_WM_PAINT()
@@ -252,11 +256,18 @@ BOOL CSRDlg::OnInitDialog()
 {
 	CDialogEx::OnInitDialog();
 
+	// Init Sensor Comm (ID 20004)
+	CRect rc(0,0,0,0);
+	if (m_cmsComm.Create(NULL, 0, rc, this, 20004))
+	{
+		m_SensorManager.AttachComm(&m_cmsComm);
+	}
+
 	// Set Window Text
 	SetWindowText(_T("消化道手术机器人控制系统"));
 
 	// Initialize Fonts
-	m_fontTitle.CreateFont(24, 0, 0, 0, FW_BOLD, FALSE, FALSE, 0, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, _T("Segoe UI"));
+	m_fontTitle.CreateFont(36, 0, 0, 0, FW_BOLD, FALSE, FALSE, 0, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, _T("Segoe UI"));
 	m_fontMain.CreatePointFont(90, _T("Segoe UI"));
 	m_fontLabel.CreatePointFont(90, _T("Segoe UI Semibold"));
 	m_fontSidebarBtn.CreatePointFont(80, _T("Segoe UI"));
@@ -273,9 +284,23 @@ BOOL CSRDlg::OnInitDialog()
 		}
 	}
 
-	// Sidebar Buttons (Motor & Haptic)
+	// Remove Borders from Param Edits to look like Labels
+	UINT paramEditIds[] = {
+		IDC_EDIT_MOTOR_STATUS, IDC_EDIT_HAPTIC_STATUS,
+		IDC_EDIT_MASTER_POS, IDC_EDIT_MASTER_ENC, IDC_EDIT_MASTER_FORCE,
+		IDC_EDIT_POSE, IDC_EDIT_BEND, IDC_EDIT_GRIP_ANGLE, IDC_EDIT_GRIP_MOTOR
+	};
+	for (UINT id : paramEditIds) {
+		CWnd* pEdit = GetDlgItem(id);
+		if (pEdit) {
+			pEdit->ModifyStyle(WS_BORDER, 0, SWP_DRAWFRAME);
+			pEdit->ModifyStyleEx(WS_EX_CLIENTEDGE, 0, SWP_DRAWFRAME);
+		}
+	}
+
+	// Sidebar Buttons (Motor & Haptic) & Exit Button
 	UINT sidebarBtnIds[] = { IDC_BUTTON_STARTM, IDC_BUTTON_SHUTM, IDC_BUTTON_SPEEDM, IDC_BUTTON_ZEROM,
-							 IDC_BUTTON_STARTH, IDC_BUTTON_ZEROH, IDC_BUTTON_SHUTH };
+							 IDC_BUTTON_STARTH, IDC_BUTTON_ZEROH, IDC_BUTTON_SHUTH, IDCANCEL };
 	for (UINT id : sidebarBtnIds) {
 		CWnd* pBtn = GetDlgItem(id);
 		if (pBtn) {
@@ -293,6 +318,36 @@ BOOL CSRDlg::OnInitDialog()
 	m_btnHapticSwitch.Create(_T(""), WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, CRect(0,0,0,0), this, 20002);
 	m_btnHapticSwitch.SetPngResources(IDR_PNG_SWITCH_OFF, IDR_PNG_SWITCH_ON);
 	m_btnHapticSwitch.SetBackgroundColor(m_clrSideCardBg);
+
+	// Create Sensor Switch (20003)
+	m_btnSensorSwitch.Create(_T(""), WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, CRect(0,0,0,0), this, 20003);
+	m_btnSensorSwitch.SetPngResources(IDR_PNG_SWITCH_OFF, IDR_PNG_SWITCH_ON);
+	m_btnSensorSwitch.SetBackgroundColor(m_clrSideCardBg);
+	
+	// Create Sensor Label
+	m_lblSensor.Create(_T("传感器:"), WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE, CRect(0,0,0,0), this);
+	
+	// Copy font from "End Force" label to ensure exact match
+	CWnd* pEndForce = FindStaticByText(_T("末端力:"));
+	if (pEndForce) {
+		m_lblSensor.SetFont(pEndForce->GetFont());
+	} else {
+		m_lblSensor.SetFont(&m_fontMain);
+	}
+
+	// Create Sensor Data Edit (ID 20005)
+	m_editSensorData.Create(ES_AUTOHSCROLL | ES_READONLY | WS_CHILD | WS_VISIBLE, CRect(0,0,0,0), this, 20005);
+	m_editSensorData.SetFont(&m_fontLabel); // Or fontMain? Others use fontLabel for values? No, others use Default? 
+	// Wait, in OnInitDialog, the others don't get SetFont(&m_fontLabel). They get dialog default. 
+	// But Edit controls might need it. Let's stick to fontLabel for values or fontMain. 
+	// The prompt was about the LABEL "传感器". Values are fine.
+	// Actually, the previous code for edit used `m_fontLabel`. 
+	// "主手位姿" labels use `m_fontMain` (default). 
+	// So `m_lblSensor.SetFont(&m_fontMain)` is correct.
+
+	// Remove Border from Sensor Edit
+	m_editSensorData.ModifyStyle(WS_BORDER, 0, SWP_DRAWFRAME);
+	m_editSensorData.ModifyStyleEx(WS_EX_CLIENTEDGE, 0, SWP_DRAWFRAME);
 
 	// Hide old GroupBoxes and Titles
 	const TCHAR* gbTitles[] = { _T("电机控制"), _T("主手控制"), _T("摄像头画面"), _T("控制参数"), _T("末端力实时曲线"), _T("Motor"), _T("Haptic"), _T("Camera View"), _T("Master Param"), _T("Robot Param"), _T("Force Feedback (N)"), NULL };
@@ -503,6 +558,17 @@ void CSRDlg::LayoutUI()
 		m_btnHapticSwitch.SetWindowPos(NULL, switchX, switchY, switchBtnW, switchBtnH, SWP_NOZORDER);
 	}
 	
+	// Sensor Control Card
+	y = m_rectCardHaptic.bottom + kCardGap;
+	int sensorH = hapticH; // Same height
+	m_rectCardSensor.SetRect(x, y, x + cardW, y + sensorH);
+	
+	if (m_btnSensorSwitch.GetSafeHwnd()) {
+		int switchX = m_rectCardSensor.right - 12 - switchBtnW;
+		int switchY = m_rectCardSensor.top + titleH + pad;
+		m_btnSensorSwitch.SetWindowPos(NULL, switchX, switchY, switchBtnW, switchBtnH, SWP_NOZORDER);
+	}
+	
 	// Exit Button
 	CWnd* pExit = GetDlgItem(IDCANCEL);
 	if(pExit) {
@@ -526,46 +592,66 @@ void CSRDlg::LayoutUI()
 	}
 	
 	// Master Param Card (Top Right)
-	m_rectCardMaster.SetRect(x + camW + kCardGap, y, x + camW + kCardGap + rightColW, y + 165);
+	// Reduced height to 155 to match content and Robot card
+	int cardH = 155;
+	m_rectCardMaster.SetRect(x + camW + kCardGap, y, x + camW + kCardGap + rightColW, y + cardH);
 	
 	// Move Master Params
 	{
 		int labelW = 70;
-		int rowH = 24;
-		int rowGap = 2; // Reduced gap to fit in card
-		int startY = m_rectCardMaster.top + 38;
+		int rowH = 28; // Increased spacing
+		int startY = m_rectCardMaster.top + 42; // Adjusted top padding
 		int cxL = m_rectCardMaster.left + 12;
 		int cxE = cxL + labelW + 10;
 		int cwE = m_rectCardMaster.right - 12 - cxE;
 		int cy = startY;
 		
+		// Hide Status Rows (Motor/Haptic Status)
+		CWnd* pMotorL = FindStaticByText(_T("电机:"));
+		if(pMotorL) pMotorL->ShowWindow(SW_HIDE);
+		CWnd* pMotorE = GetDlgItem(IDC_EDIT_MOTOR_STATUS);
+		if(pMotorE) pMotorE->ShowWindow(SW_HIDE);
+		
+		CWnd* pHapticL = FindStaticByText(_T("主手:"));
+		if(pHapticL) pHapticL->ShowWindow(SW_HIDE);
+		CWnd* pHapticE = GetDlgItem(IDC_EDIT_HAPTIC_STATUS);
+		if(pHapticE) pHapticE->ShowWindow(SW_HIDE);
+
 		struct Item { const TCHAR* l; UINT id; };
 		Item items[] = {
-			{_T("电机:"), IDC_EDIT_MOTOR_STATUS},
-			{_T("主手:"), IDC_EDIT_HAPTIC_STATUS},
+			// Removed Status items from layout loop
 			{_T("主手位姿:"), IDC_EDIT_MASTER_POS},
 			{_T("主手编码:"), IDC_EDIT_MASTER_ENC},
-			{_T("末端力:"), IDC_EDIT_MASTER_FORCE}
+			{_T("末端力:"), IDC_EDIT_MASTER_FORCE},
+			// New Sensor Data Row
+			{_T("传感器:"), 20005} 
 		};
 		for(auto& it : items) {
 			CWnd* pL = FindStaticByText(it.l);
 			if(!pL && _tcscmp(it.l, _T("主手编码:"))==0) pL = FindStaticByText(_T("主手编码器:"));
 			
-			if(pL) pL->SetWindowPos(NULL, cxL, cy+2, labelW, 16, SWP_NOZORDER);
+			if(pL) {
+				pL->ShowWindow(SW_SHOW); // Ensure visible
+				pL->SetWindowPos(NULL, cxL, cy+2, labelW, 16, SWP_NOZORDER);
+			}
 			CWnd* pE = GetDlgItem(it.id);
-			if(pE) pE->SetWindowPos(NULL, cxE, cy, cwE, 20, SWP_NOZORDER);
+			if(pE) {
+				pE->ShowWindow(SW_SHOW); // Ensure visible
+				pE->SetWindowPos(NULL, cxE, cy, cwE, 20, SWP_NOZORDER);
+			}
 			cy += rowH;
 		}
 	}
 
 	// Robot Param Card (Middle Right)
-	m_rectCardRobot.SetRect(m_rectCardMaster.left, m_rectCardMaster.bottom + kCardGap, m_rectCardMaster.right, y + row1H);
+	// Match height with Master Card
+	m_rectCardRobot.SetRect(m_rectCardMaster.left, m_rectCardMaster.bottom + kCardGap, m_rectCardMaster.right, m_rectCardMaster.bottom + kCardGap + cardH);
 	
 	// Move Robot Params
 	{
 		int labelW = 70;
-		int rowH = 24;
-		int startY = m_rectCardRobot.top + 38;
+		int rowH = 28; // Increased spacing
+		int startY = m_rectCardRobot.top + 42; // Adjusted top padding
 		int cxL = m_rectCardRobot.left + 12;
 		int cxE = cxL + labelW + 10;
 		int cwE = m_rectCardRobot.right - 12 - cxE;
@@ -761,6 +847,27 @@ void CSRDlg::OnPaint()
 
 			dc.RestoreDC(nSavedDC);
 		}
+		
+		// Draw Sensor Card
+		if (!m_rectCardSensor.IsRectEmpty()) {
+			DrawCardWithTitle(dc, m_rectCardSensor, kRadius, _T("Sensor Control"), m_clrSideCardTitle, m_clrSideCardBg, m_clrSideCardBorder, m_clrSidebarText);
+
+			int nSavedDC = dc.SaveDC(); 
+			CRect rcLabel = m_rectCardSensor;
+			rcLabel.top += 34;
+			rcLabel.bottom = rcLabel.top + 46;
+			rcLabel.left += 12;
+			rcLabel.right -= 100;
+
+			dc.SetBkMode(TRANSPARENT);
+			dc.SetTextColor(m_clrSidebarText);
+			dc.SelectObject(&m_fontSidebarBtn);
+
+			// "Sensor" = 传感器
+			dc.DrawText(_T("传感器"), &rcLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+			dc.RestoreDC(nSavedDC);
+		}
 
 		// 5. Main Cards (White)
 		if (!m_rectCardCamera.IsRectEmpty()) DrawShadowedCard(dc, m_rectCardCamera, kRadius, m_clrMainCardBg, m_clrMainCardBorder);
@@ -798,13 +905,14 @@ HBRUSH CSRDlg::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
 			pDC->SetTextColor(m_clrOkGreen);
 		else
 			pDC->SetTextColor(m_clrDangerRed);
-		pDC->SetBkColor(RGB(255, 255, 255));
-		return (HBRUSH)GetStockObject(WHITE_BRUSH);
+		pDC->SetBkColor(m_clrMainCardBg);
+		return m_brushMainCardBg;
 	}
 
 	// Handle other ReadOnly Edits
 	if (id == IDC_EDIT_MASTER_POS || id == IDC_EDIT_MASTER_ENC || id == IDC_EDIT_MASTER_FORCE ||
-		id == IDC_EDIT_POSE || id == IDC_EDIT_BEND || id == IDC_EDIT_GRIP_ANGLE || id == IDC_EDIT_GRIP_MOTOR)
+		id == IDC_EDIT_POSE || id == IDC_EDIT_BEND || id == IDC_EDIT_GRIP_ANGLE || id == IDC_EDIT_GRIP_MOTOR ||
+		id == 20005) // Sensor Data
 	{
 		pDC->SetTextColor(m_clrMainText);
 		pDC->SetBkColor(m_clrMainCardBg);
@@ -1085,6 +1193,14 @@ void CSRDlg::OnTimer(UINT_PTR nIDEvent)
 			m_pLineSeries[1]->AddPoint(t1, fy);
 			m_pLineSeries[2]->AddPoint(t1, fz);
 		}
+		
+		// Update Sensor Data
+		if (m_nSensorSwitchState == 1)
+		{
+			m_SensorManager.ProcessBuffer();
+			CString str = m_SensorManager.GetLastRawString();
+			m_editSensorData.SetWindowText(str);
+		}
 
 		if (dhdGetEnc(enc) < 0) {
 		}
@@ -1296,4 +1412,34 @@ void CSRDlg::OnClickedHapticSwitch()
 		m_nHapticSwitchState = 0; // OFF
 		m_btnHapticSwitch.SetSwitchState(CSwitchButton::SWITCH_OFF);
 	}
+}
+
+void CSRDlg::OnClickedSensorSwitch()
+{
+	if (m_nSensorSwitchState == 0)
+	{
+		// Try Auto Connect
+		if (m_SensorManager.AutoConnect())
+		{
+			m_nSensorSwitchState = 1;
+			m_btnSensorSwitch.SetSwitchState(CSwitchButton::SWITCH_ON);
+		}
+		else
+		{
+			// Failed
+			m_btnSensorSwitch.SetSwitchState(CSwitchButton::SWITCH_OFF);
+			AfxMessageBox(_T("No Sensor Found!"));
+		}
+	}
+	else
+	{
+		m_SensorManager.Disconnect();
+		m_nSensorSwitchState = 0;
+		m_btnSensorSwitch.SetSwitchState(CSwitchButton::SWITCH_OFF);
+	}
+}
+
+void CSRDlg::OnCommEvent()
+{
+	m_SensorManager.OnCommEvent();
 }

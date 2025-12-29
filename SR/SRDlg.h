@@ -5,6 +5,8 @@
 #include "ChartCtrl.h"
 #include "ChartLineSerie.h"
 #include "SwitchButton.h"
+#include "SensorManager.h"
+#include "CMSCOMM1.h"
 #include <opencv2/opencv.hpp>
 
 constexpr double kPI = 3.1415926;
@@ -54,6 +56,14 @@ public:
 	// Timer for async operations
 	UINT_PTR m_nMotorTimer = 0;
 
+	// Sensor Control
+	SensorManager m_SensorManager;
+	CSwitchButton m_btnSensorSwitch;
+	int m_nSensorSwitchState = 0; // 0: OFF, 1: ON
+	CStatic m_lblSensor;    // Label for Sensor Data
+	CEdit m_editSensorData; // New edit for sensor display
+	CMSCOMM1 m_cmsComm; // The ActiveX control
+
 	// UI Customization Resources
 	CFont m_fontTitle;      // Header Title Font
 	CFont m_fontMain;       // Main UI Font
@@ -94,7 +104,7 @@ public:
 	// Layout Rects (for OnPaint)
 	CRect m_rectSidebar;
 	CRect m_rectMainArea;
-	CRect m_rectCardMotor, m_rectCardHaptic;
+	CRect m_rectCardMotor, m_rectCardHaptic, m_rectCardSensor;
 	CRect m_rectCardCamera, m_rectCardMaster, m_rectCardRobot, m_rectCardChart;
 
 	void LayoutUI();
@@ -173,6 +183,11 @@ public:
 	CSwitchButton m_btnHapticSwitch;
 	int m_nHapticSwitchState = 0; // 0: OFF, 1: ON
 	afx_msg void OnClickedHapticSwitch();
+	
+	// Sensor Switch Handler
+	afx_msg void OnClickedSensorSwitch();
+	DECLARE_EVENTSINK_MAP() // For ActiveX Events
+	void OnCommEvent(); // Handler for MSComm
 
 	bool StartHapticDevice();
 	bool ZeroHapticDevice();
