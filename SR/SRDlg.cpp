@@ -289,6 +289,15 @@ BOOL CSRDlg::OnInitDialog()
 		}
 	}
 
+	// Re-create m_editMasterEnc with MULTILINE style
+	// We need to do this here before the border removal loop or after, but since it's re-created, 
+	// we should ensure it's ready.
+	if (m_editMasterEnc.GetSafeHwnd()) {
+		m_editMasterEnc.DestroyWindow();
+	}
+	m_editMasterEnc.Create(ES_MULTILINE | ES_READONLY | WS_CHILD | WS_VISIBLE, CRect(0, 0, 0, 0), this, IDC_EDIT_MASTER_ENC);
+	m_editMasterEnc.SetFont(&m_fontMain);
+
 	// Remove Borders from Param Edits to look like Labels
 	UINT paramEditIds[] = {
 		IDC_EDIT_MOTOR_STATUS, IDC_EDIT_HAPTIC_STATUS,
@@ -589,19 +598,20 @@ void CSRDlg::LayoutUI()
 	int rightColW = 360;
 	int camW = mainW - rightColW - kCardGap;
 
+	// Master Param Card (Top Right)
+	// Increased height to 185 to allow 2 lines for encoder data
+	int cardH = 185;
+	m_rectCardMaster.SetRect(x + camW + kCardGap, y, x + camW + kCardGap + rightColW, y + cardH);
+
 	// Camera Card (Top Left)
-	int row1H = 330; // Camera height increased to match expanded right column
+	// Camera height increased to match expanded right column (Master 185 + Gap 14 + Robot 155 = 354)
+	int row1H = 354;
 	m_rectCardCamera.SetRect(x, y, x + camW, y + row1H);
 
 	// Move Camera
 	if (m_picCamera.GetSafeHwnd()) {
 		m_picCamera.SetWindowPos(NULL, m_rectCardCamera.left + 2, m_rectCardCamera.top + 2, m_rectCardCamera.Width() - 4, m_rectCardCamera.Height() - 4, SWP_NOZORDER);
 	}
-
-	// Master Param Card (Top Right)
-	// Reduced height to 155 to match content and Robot card
-	int cardH = 155;
-	m_rectCardMaster.SetRect(x + camW + kCardGap, y, x + camW + kCardGap + rightColW, y + cardH);
 
 	// Move Master Params
 	{
@@ -635,7 +645,10 @@ void CSRDlg::LayoutUI()
 		};
 		for (auto& it : items) {
 			CWnd* pL = FindStaticByText(it.l);
-			if (!pL && _tcscmp(it.l, _T("主手编码:")) == 0) pL = FindStaticByText(_T("主手编码器:"));
+			if (!pL && _tcscmp(it.l, _T("主手编码:")) == 0) {
+				pL = FindStaticByText(_T("主手编码器:"));
+				if (pL) pL->SetWindowText(_T("主手编码:"));
+			}
 
 			if (pL) {
 				pL->ShowWindow(SW_SHOW); // Ensure visible
@@ -644,15 +657,22 @@ void CSRDlg::LayoutUI()
 			CWnd* pE = GetDlgItem(it.id);
 			if (pE) {
 				pE->ShowWindow(SW_SHOW); // Ensure visible
-				pE->SetWindowPos(NULL, cxE, cy, cwE, 20, SWP_NOZORDER);
+
+				int h = 20;
+				if (it.id == IDC_EDIT_MASTER_ENC) h = 38; // Double height for encoder
+
+				pE->SetWindowPos(NULL, cxE, cy, cwE, h, SWP_NOZORDER);
 			}
-			cy += rowH;
+			
+			if (it.id == IDC_EDIT_MASTER_ENC) cy += 46; // More spacing for this row
+			else cy += rowH;
 		}
 	}
 
 	// Robot Param Card (Middle Right)
-	// Match height with Master Card
-	m_rectCardRobot.SetRect(m_rectCardMaster.left, m_rectCardMaster.bottom + kCardGap, m_rectCardMaster.right, m_rectCardMaster.bottom + kCardGap + cardH);
+	// Match height with Robot content (155)
+	int robotH = 155;
+	m_rectCardRobot.SetRect(m_rectCardMaster.left, m_rectCardMaster.bottom + kCardGap, m_rectCardMaster.right, m_rectCardMaster.bottom + kCardGap + robotH);
 
 	// Move Robot Params
 	{
@@ -1278,7 +1298,7 @@ void CSRDlg::OnTimer(UINT_PTR nIDEvent)
 		strUI.Format(_T("X: %.3f  Y: %.3f  Z: %.3f"), px, py, pz);
 		m_editMasterPos.SetWindowText(strUI);
 
-		strUI.Format(_T("%d, %d, %d, %d, %d, %d"), enc[0], enc[1], enc[2], enc[3], enc[4], enc[5]);
+		strUI.Format(_T("%d, %d, %d\r\n%d, %d, %d"), enc[0], enc[1], enc[2], enc[3], enc[4], enc[5]);
 		m_editMasterEnc.SetWindowText(strUI);
 
 		// 3. Update "End Force" Text to show Relative Position Data (matching the chart logic)
