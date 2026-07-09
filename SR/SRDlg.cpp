@@ -1,4 +1,4 @@
-// SRDlg.cpp : implementation file
+ï»¿// SRDlg.cpp : implementation file
 //v1.3 Data Source Correction (Match TXDlg Logic)
 
 #include "pch.h"
@@ -28,11 +28,19 @@
 #include <iostream>
 #include <algorithm>
 #include <vector>
+#include <thread>
+#include <mutex>
+#include <atomic>
+#include <string>
+#include <cstdlib>
+#include <deque>
 
 #include <unsupported/Eigen/CXX11/Tensor> 
 #include <Eigen/Dense> 
 
 #define WM_MOTOR_INIT_COMPLETE (WM_USER + 100)
+// Dynamically created serial-port combo box.
+#define IDC_COMBO_SENSOR_PORT 20006
 
 using namespace Eigen;
 using namespace std;
@@ -45,6 +53,457 @@ LARGE_INTEGER iFreq;
 LARGE_INTEGER iBegTime;
 LARGE_INTEGER iStopTime;
 int state;
+
+// ============================================================================
+// Sensor serial reader (WinAPI, x64-compatible)
+// MSComm ActiveX often fails in x64 with 0x80040154, so sensor data is read
+// by a WinAPI serial thread. A combo box is added for manual COM selection.
+// ============================================================================
+static HANDLE g_hSensorCom = INVALID_HANDLE_VALUE;
+static std::thread g_sensorThread;
+static std::atomic<bool> g_sensorRunning(false);
+static std::mutex g_sensorMutex;
+static CString g_sensorRawString;
+static double g_sensorValues[20] = { 0.0 };
+static double g_sensorRawValues[4] = { 0.0 };
+static double g_sensorZeroValues[4] = { 0.0 };
+static bool g_sensorZeroed = false;
+static int g_sensorPortNumber = 0;
+static CComboBox g_comboSensorPort;
+static const double kSensorDeadband = 0.03;
+static const double kMaxSensorZeroOffset = 0.5; // Zeroing only compensates small drift.
+static const double kMaxGripperFeedbackForce = 8.0; // omega.7 gripper feedback limit: +/-8 N
+static const double kMinGripperFeedbackForce = 0.05; // Ignore gripper feedback below 0.05 N
+
+struct SensorPlotPoint
+{
+	double t;
+	double fx;
+	double fy;
+	double fz;
+};
+
+static std::deque<SensorPlotPoint> g_sensorPlotPoints;
+static std::deque<SensorPlotPoint> g_sensorRawSamples;
+
+static CString MakeComName(int portNumber)
+{
+	CString name;
+	name.Format(_T("\\\\.\\COM%d"), portNumber);
+	return name;
+}
+
+static std::vector<int> EnumAvailableComPorts()
+{
+	std::vector<int> ports;
+	TCHAR targetPath[512] = { 0 };
+
+	for (int port = 1; port <= 255; ++port)
+	{
+		CString portName;
+		portName.Format(_T("COM%d"), port);
+
+		if (::QueryDosDevice(portName, targetPath, 512) != 0)
+		{
+			ports.push_back(port);
+		}
+	}
+
+	return ports;
+}
+
+static void PopulateSensorPortCombo(int preferredPort = 10)
+{
+	if (!g_comboSensorPort.GetSafeHwnd()) return;
+
+	g_comboSensorPort.ResetContent();
+
+	std::vector<int> ports = EnumAvailableComPorts();
+	int selectedIndex = CB_ERR;
+
+	for (int port : ports)
+	{
+		CString item;
+		item.Format(_T("COM%d"), port);
+		int index = g_comboSensorPort.AddString(item);
+		g_comboSensorPort.SetItemData(index, (DWORD_PTR)port);
+
+		if (port == preferredPort)
+		{
+			selectedIndex = index;
+		}
+	}
+
+	if (ports.empty())
+	{
+		int index = g_comboSensorPort.AddString(_T("No COM"));
+		g_comboSensorPort.SetItemData(index, 0);
+		g_comboSensorPort.SetCurSel(index);
+		return;
+	}
+
+	if (selectedIndex == CB_ERR) selectedIndex = 0;
+	g_comboSensorPort.SetCurSel(selectedIndex);
+}
+
+static int GetSelectedSensorPort()
+{
+	if (!g_comboSensorPort.GetSafeHwnd()) return 0;
+
+	int sel = g_comboSensorPort.GetCurSel();
+	if (sel == CB_ERR) return 0;
+
+	DWORD_PTR data = g_comboSensorPort.GetItemData(sel);
+	return (int)data;
+}
+
+static bool OpenSensorPort(int portNumber, HANDLE& hCom)
+{
+	CString portName = MakeComName(portNumber);
+
+	hCom = ::CreateFile(portName,
+		GENERIC_READ | GENERIC_WRITE,
+		0,
+		NULL,
+		OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL,
+		NULL);
+
+	if (hCom == INVALID_HANDLE_VALUE)
+	{
+		return false;
+	}
+
+	::SetupComm(hCom, 4096, 4096);
+
+	DCB dcb;
+	memset(&dcb, 0, sizeof(dcb));
+	dcb.DCBlength = sizeof(dcb);
+	if (!::GetCommState(hCom, &dcb))
+	{
+		::CloseHandle(hCom);
+		hCom = INVALID_HANDLE_VALUE;
+		return false;
+	}
+
+	dcb.BaudRate = CBR_115200;
+	dcb.ByteSize = 8;
+	dcb.Parity = NOPARITY;
+	dcb.StopBits = ONESTOPBIT;
+	dcb.fBinary = TRUE;
+	dcb.fDtrControl = DTR_CONTROL_ENABLE;
+	dcb.fRtsControl = RTS_CONTROL_ENABLE;
+
+	if (!::SetCommState(hCom, &dcb))
+	{
+		::CloseHandle(hCom);
+		hCom = INVALID_HANDLE_VALUE;
+		return false;
+	}
+
+	COMMTIMEOUTS timeouts;
+	memset(&timeouts, 0, sizeof(timeouts));
+	timeouts.ReadIntervalTimeout = 20;
+	timeouts.ReadTotalTimeoutConstant = 20;
+	timeouts.ReadTotalTimeoutMultiplier = 1;
+	timeouts.WriteTotalTimeoutConstant = 50;
+	timeouts.WriteTotalTimeoutMultiplier = 1;
+	::SetCommTimeouts(hCom, &timeouts);
+
+	::PurgeComm(hCom, PURGE_RXCLEAR | PURGE_TXCLEAR);
+	return true;
+}
+
+static std::string TrimAscii(const std::string& s)
+{
+	size_t b = 0;
+	while (b < s.size() && (s[b] == ' ' || s[b] == '\t' || s[b] == '\r' || s[b] == '\n')) b++;
+	size_t e = s.size();
+	while (e > b && (s[e - 1] == ' ' || s[e - 1] == '\t' || s[e - 1] == '\r' || s[e - 1] == '\n')) e--;
+	return s.substr(b, e - b);
+}
+
+static void StoreSensorRawString(const std::string& raw)
+{
+	std::string line = TrimAscii(raw);
+	if (line.empty()) return;
+
+	CString cstr(line.c_str());
+	std::lock_guard<std::mutex> lock(g_sensorMutex);
+	g_sensorRawString = cstr;
+}
+
+static void SensorReadThreadProc()
+{
+	std::string acc;
+	char buf[256];
+
+	while (g_sensorRunning)
+	{
+		DWORD nRead = 0;
+		BOOL ok = ::ReadFile(g_hSensorCom, buf, sizeof(buf) - 1, &nRead, NULL);
+		if (!ok)
+		{
+			::Sleep(10);
+			continue;
+		}
+
+		if (nRead == 0)
+		{
+			::Sleep(2);
+			continue;
+		}
+
+		buf[nRead] = '\0';
+		acc.append(buf, nRead);
+
+		// Prefer newline-terminated frames, if present.
+		for (char& ch : acc)
+		{
+			if (ch == '\r') ch = '\n';
+		}
+
+		size_t pos = std::string::npos;
+		while ((pos = acc.find('\n')) != std::string::npos)
+		{
+			std::string line = acc.substr(0, pos);
+			acc.erase(0, pos + 1);
+			StoreSensorRawString(line);
+		}
+
+		// Also support frames without newline: 99,value1,value2,value3,99
+		size_t start = acc.find("99,");
+		if (start != std::string::npos)
+		{
+			if (start > 0) acc.erase(0, start);
+			size_t end = acc.find(",99", 3);
+			if (end != std::string::npos)
+			{
+				std::string frame = acc.substr(0, end + 3);
+				StoreSensorRawString(frame);
+				acc.erase(0, end + 3);
+			}
+		}
+
+		// Also support label frames without newline, for example:
+		// Fz:12.34N,Fx:-0.56N,Fy:7.89N
+		if (acc.find('\n') == std::string::npos)
+		{
+			size_t posFx = acc.find("Fx");
+			if (posFx == std::string::npos) posFx = acc.find("FX");
+			if (posFx == std::string::npos) posFx = acc.find("fx");
+
+			size_t posFy = acc.find("Fy");
+			if (posFy == std::string::npos) posFy = acc.find("FY");
+			if (posFy == std::string::npos) posFy = acc.find("fy");
+
+			size_t posFz = acc.find("Fz");
+			if (posFz == std::string::npos) posFz = acc.find("FZ");
+			if (posFz == std::string::npos) posFz = acc.find("fz");
+
+			if (posFx != std::string::npos && posFy != std::string::npos && posFz != std::string::npos)
+			{
+				size_t lastLabel = std::max(posFx, std::max(posFy, posFz));
+				size_t endN = acc.find('N', lastLabel);
+				if (endN != std::string::npos)
+				{
+					std::string frame = acc.substr(0, endN + 1);
+					StoreSensorRawString(frame);
+					acc.erase(0, endN + 1);
+				}
+			}
+		}
+
+		if (acc.size() > 2048)
+		{
+			acc.erase(0, acc.size() - 1024);
+		}
+	}
+}
+
+static void StopSensorSerial()
+{
+	g_sensorRunning = false;
+	if (g_sensorThread.joinable())
+	{
+		g_sensorThread.join();
+	}
+	if (g_hSensorCom != INVALID_HANDLE_VALUE)
+	{
+		::CloseHandle(g_hSensorCom);
+		g_hSensorCom = INVALID_HANDLE_VALUE;
+	}
+	g_sensorPortNumber = 0;
+	std::lock_guard<std::mutex> lock(g_sensorMutex);
+	g_sensorRawString.Empty();
+	for (int i = 0; i < 20; ++i) g_sensorValues[i] = 0.0;
+	for (int i = 0; i < 4; ++i) g_sensorRawValues[i] = 0.0;
+	g_sensorPlotPoints.clear();
+	g_sensorRawSamples.clear();
+}
+
+static bool StartSensorSerialByPort(int portNumber, CString& statusText)
+{
+	StopSensorSerial();
+
+	if (portNumber <= 0)
+	{
+		statusText = _T("No COM port selected");
+		return false;
+	}
+
+	HANDLE hCom = INVALID_HANDLE_VALUE;
+	if (!OpenSensorPort(portNumber, hCom))
+	{
+		statusText.Format(_T("COM%d open failed"), portNumber);
+		return false;
+	}
+
+	g_hSensorCom = hCom;
+	g_sensorPortNumber = portNumber;
+	g_sensorRunning = true;
+	g_sensorThread = std::thread(SensorReadThreadProc);
+
+	statusText.Format(_T("COM%d connected"), portNumber);
+	return true;
+}
+
+static bool ExtractForceValueByLabel(const CString& src, const CString& upper, LPCTSTR label, double& value)
+{
+	int labelPos = upper.Find(label);
+	if (labelPos < 0) return false;
+
+	int i = labelPos + (int)_tcslen(label);
+	int len = src.GetLength();
+
+	// Skip all non-number characters after Fx/Fy/Fz.
+	while (i < len)
+	{
+		TCHAR ch = src[i];
+		bool isNumberStart = ((ch >= _T('0') && ch <= _T('9')) || ch == _T('-') || ch == _T('+') || ch == _T('.'));
+		if (isNumberStart) break;
+		++i;
+	}
+
+	int start = i;
+	while (i < len)
+	{
+		TCHAR ch = src[i];
+		bool isNumberChar = ((ch >= _T('0') && ch <= _T('9')) ||
+			ch == _T('-') || ch == _T('+') || ch == _T('.') ||
+			ch == _T('e') || ch == _T('E'));
+		if (!isNumberChar) break;
+		++i;
+	}
+
+	if (i <= start) return false;
+
+	CString num = src.Mid(start, i - start);
+	value = _tstof(num);
+	return true;
+}
+
+// Arduino frame example:
+// Fz:12.34N,Fx:-0.56N,Fy:7.89N
+static bool ParseSensorLineToFxFyFz(const CString& raw, double& fx, double& fy, double& fz)
+{
+	CString s = raw;
+	s.Trim();
+	if (s.IsEmpty()) return false;
+
+
+	CString upper = s;
+	upper.MakeUpper();
+
+	bool okFx = ExtractForceValueByLabel(s, upper, _T("FX"), fx);
+	bool okFy = ExtractForceValueByLabel(s, upper, _T("FY"), fy);
+	bool okFz = ExtractForceValueByLabel(s, upper, _T("FZ"), fz);
+
+	return okFx && okFy && okFz;
+}
+
+static bool CStringToDoubleStrict(const CString& src, double& value)
+{
+	CString s = src;
+	s.Trim();
+	if (s.IsEmpty()) return false;
+
+	LPCTSTR pStart = s.GetString();
+	TCHAR* pEnd = nullptr;
+	value = _tcstod(pStart, &pEnd);
+
+	if (pEnd == pStart) return false;
+
+	while (pEnd && (*pEnd == _T(' ') || *pEnd == _T('\t')))
+	{
+		++pEnd;
+	}
+
+	return (pEnd != nullptr && *pEnd == _T('\0'));
+}
+
+// Numeric sensor frame parser.
+// Supported formats:
+// 1) Fx,Fy,Fz               example: 1.234,-0.560,7.890
+// 2) 99,Fx,Fy,Fz,99         example: 99,1.234,-0.560,7.890,99
+// 3) Fx Fy Fz or Fx\tFy\tFz
+static bool ParseNumericSensorFrame(const CString& raw, double& fx, double& fy, double& fz)
+{
+	CString s = raw;
+	s.Trim();
+	if (s.IsEmpty()) return false;
+
+	// Make the parser tolerant to space/tab/semicolon separated pure numbers.
+	s.Replace(_T("\t"), _T(","));
+	s.Replace(_T(";"), _T(","));
+	s.Replace(_T(" "), _T(","));
+	while (s.Replace(_T(",,"), _T(",")) > 0) {}
+
+	double theNum[16] = { 0.0 };
+	int index = 0;
+	int curPos = 0;
+
+	CString token = s.Tokenize(_T(","), curPos);
+	while (!token.IsEmpty() && index < 16)
+	{
+		double value = 0.0;
+		if (!CStringToDoubleStrict(token, value))
+		{
+			return false;
+		}
+
+		theNum[index++] = value;
+		token = s.Tokenize(_T(","), curPos);
+	}
+
+	// Framed numeric data in SR: 99,Fx,Fy,Fz,99.
+	// The parsed Fz value is later used as haptic gripper feedback.
+	if (index >= 5 && theNum[0] == 99.0 && theNum[4] == 99.0)
+	{
+		fx = theNum[1];
+		fy = theNum[2];
+		fz = theNum[3];
+		return true;
+	}
+
+	// Pure numeric data: Fx,Fy,Fz
+	if (index >= 3)
+	{
+		fx = theNum[0];
+		fy = theNum[1];
+		fz = theNum[2];
+		return true;
+	}
+
+	return false;
+}
+
+static double ClampSensorZeroOffset(double value)
+{
+	return (std::max)(-kMaxSensorZeroOffset,
+		(std::min)(kMaxSensorZeroOffset, value));
+}
+
 
 // --- Helper Functions ---
 void DrawGradient(CDC* pDC, CRect rect, COLORREF cTop, COLORREF cBottom)
@@ -68,36 +527,59 @@ void DrawGradient(CDC* pDC, CRect rect, COLORREF cTop, COLORREF cBottom)
 }
 
 // Helper to draw OpenCV Mat to CStatic
-void DrawMatToPic(cv::Mat& img, CStatic& pic)
+// Helper to draw OpenCV Mat to CStatic
+void DrawMatToPic(const cv::Mat& img, CStatic& pic)
 {
 	if (img.empty()) return;
 	if (!pic.GetSafeHwnd()) return;
 
 	CRect rect;
 	pic.GetClientRect(&rect);
-
 	if (rect.IsRectEmpty()) return;
 
-	cv::Mat resized;
-	// Align width to multiple of 4 to ensure stride is 4-byte aligned (required by GDI)
+	cv::Mat bgrImg;
+
+	if (img.channels() == 1)
+	{
+		cv::cvtColor(img, bgrImg, cv::COLOR_GRAY2BGR);
+	}
+	else if (img.channels() == 2)
+	{
+		// Many external USB cameras / endoscope cameras output YUY2/YUYV
+		cv::cvtColor(img, bgrImg, cv::COLOR_YUV2BGR_YUY2);
+	}
+	else if (img.channels() == 3)
+	{
+		bgrImg = img;
+	}
+	else if (img.channels() == 4)
+	{
+		cv::cvtColor(img, bgrImg, cv::COLOR_BGRA2BGR);
+	}
+	else
+	{
+		return;
+	}
+
+	if (bgrImg.depth() != CV_8U)
+	{
+		bgrImg.convertTo(bgrImg, CV_8U);
+	}
+
 	int alignedW = rect.Width() & ~3;
 	if (alignedW < 4) alignedW = 4;
 
-	cv::resize(img, resized, cv::Size(alignedW, rect.Height()));
+	cv::Mat resized;
+	cv::resize(bgrImg, resized, cv::Size(alignedW, rect.Height()));
 
-	// Ensure 24-bit BGR and continuous for StretchDIBits
-	if (resized.type() != CV_8UC3 || !resized.isContinuous())
+	if (!resized.isContinuous())
 	{
-		cv::Mat temp;
-		if (resized.channels() == 1) cv::cvtColor(resized, temp, cv::COLOR_GRAY2BGR);
-		else if (resized.channels() == 4) cv::cvtColor(resized, temp, cv::COLOR_BGRA2BGR);
-		else resized.copyTo(temp); // Make continuous
-
-		resized = temp;
+		resized = resized.clone();
 	}
 
 	BITMAPINFO bitInfo;
 	memset(&bitInfo, 0, sizeof(BITMAPINFO));
+
 	bitInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
 	bitInfo.bmiHeader.biWidth = resized.cols;
 	bitInfo.bmiHeader.biHeight = -resized.rows;
@@ -108,9 +590,16 @@ void DrawMatToPic(cv::Mat& img, CStatic& pic)
 	CDC* pDC = pic.GetDC();
 	if (pDC)
 	{
-		::StretchDIBits(pDC->GetSafeHdc(), 0, 0, rect.Width(), rect.Height(),
+		::StretchDIBits(
+			pDC->GetSafeHdc(),
+			0, 0, rect.Width(), rect.Height(),
 			0, 0, resized.cols, resized.rows,
-			resized.data, &bitInfo, DIB_RGB_COLORS, SRCCOPY);
+			resized.data,
+			&bitInfo,
+			DIB_RGB_COLORS,
+			SRCCOPY
+		);
+
 		pic.ReleaseDC(pDC);
 	}
 }
@@ -148,15 +637,16 @@ END_MESSAGE_MAP()
 // ==========================================================================
 
 CSRDlg::CSRDlg(CWnd* pParent /*=nullptr*/)
-	: CDialogEx(IDD_SR_DIALOG, pParent), m_pMotorManager(nullptr)
+	: CDialogEx(IDD_SR_DIALOG, pParent), m_pMotorManager(nullptr), m_pBridgeServer(nullptr)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 	m_pMotorManager = new MotorManager();
+	m_pBridgeServer = new PythonBridgeServer();
 
 	// --- Theme Color Initialization ---
 
-	// App BG
-	m_clrAppBg = RGB(224, 230, 235);
+	// App BG (Dark Theme)
+	m_clrAppBg = RGB(43, 56, 66);
 
 	// Header
 	m_clrHdrTop = RGB(16, 45, 70);
@@ -171,11 +661,11 @@ CSRDlg::CSRDlg(CWnd* pParent /*=nullptr*/)
 	m_clrSideCardBorder = RGB(70, 85, 95);
 	m_clrSidebarText = RGB(235, 240, 245);
 
-	// Main Cards
-	m_clrMainCardBg = RGB(248, 250, 252);
-	m_clrMainCardBorder = RGB(210, 220, 230);
-	m_clrMainText = RGB(35, 40, 45);
-	m_clrSubText = RGB(110, 120, 130);
+	// Main Cards (Dark Theme)
+	m_clrMainCardBg = RGB(55, 67, 76);
+	m_clrMainCardBorder = RGB(70, 85, 95);
+	m_clrMainText = RGB(235, 240, 245);
+	m_clrSubText = RGB(170, 180, 190);
 
 	// Status
 	m_clrOkGreen = RGB(46, 204, 113);
@@ -196,6 +686,13 @@ CSRDlg::CSRDlg(CWnd* pParent /*=nullptr*/)
 	done = 1;
 	t0 = 0;
 	t1 = 0;
+
+	// Explicitly initialize switch states and timer handle.
+	m_nMotorSwitchState = 0;
+	m_nHapticSwitchState = 0;
+	m_nSensorSwitchState = 0;
+	m_nMotorTimer = 0;
+	for (int i = 0; i < 3; ++i) m_pLineSeries[i] = nullptr;
 }
 
 CSRDlg::~CSRDlg()
@@ -203,6 +700,13 @@ CSRDlg::~CSRDlg()
 	if (m_workerThread.joinable()) m_workerThread.join();
 
 	if (m_camera.isOpened()) m_camera.release();
+	if (m_pBridgeServer)
+	{
+		m_pBridgeServer->ForceZeroFeedback("application closing");
+		m_pBridgeServer->Stop();
+		delete m_pBridgeServer;
+		m_pBridgeServer = nullptr;
+	}
 	dhdClose();
 
 	if (m_pMotorManager)
@@ -244,6 +748,7 @@ BEGIN_MESSAGE_MAP(CSRDlg, CDialogEx)
 	ON_WM_SIZE()
 	ON_WM_TIMER()
 	ON_WM_DESTROY()
+	ON_WM_DRAWITEM()
 	ON_BN_CLICKED(IDOK, &CSRDlg::OnBnClickedOk)
 	ON_BN_CLICKED(IDC_BUTTON_STARTM, &CSRDlg::OnClickedButtonStartM)
 	ON_BN_CLICKED(IDC_BUTTON_SHUTM, &CSRDlg::OnClickedButtonShutM)
@@ -254,6 +759,9 @@ BEGIN_MESSAGE_MAP(CSRDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BUTTON_SHUTH, &CSRDlg::OnClickedButtonShutH)
 	ON_BN_CLICKED(20001, &CSRDlg::OnClickedMotorSwitch)
 	ON_BN_CLICKED(20002, &CSRDlg::OnClickedHapticSwitch)
+	ON_BN_CLICKED(20003, &CSRDlg::OnClickedSensorSwitch)
+	ON_BN_CLICKED(IDC_BUTTON_CLEAR_CHART, &CSRDlg::OnClickedClearChart)
+	ON_BN_CLICKED(IDC_BUTTON_SENSOR_ZERO, &CSRDlg::OnClickedSensorZero)
 	ON_MESSAGE(WM_MOTOR_INIT_COMPLETE, &CSRDlg::OnMotorInitComplete)
 END_MESSAGE_MAP()
 
@@ -261,15 +769,12 @@ BOOL CSRDlg::OnInitDialog()
 {
 	CDialogEx::OnInitDialog();
 
-	// Init Sensor Comm (ID 20004)
-	CRect rc(0, 0, 0, 0);
-	if (m_cmsComm.Create(NULL, 0, rc, this, 20004))
-	{
-		m_SensorManager.AttachComm(&m_cmsComm);
-	}
+	// Sensor serial input is handled by WinAPI serial thread.
+	// The old MSComm ActiveX control is intentionally not created here,
+	// because it often fails in x64 with 0x80040154 and then no data arrive.
 
 	// Set Window Text
-	SetWindowText(_T("Ïû»¯µÀÊÖÊõ»úÆ÷ÈË¿ØÖÆÏµÍ³"));
+	SetWindowText(_T("æ¶ˆåŒ–é“æ‰‹æœ¯æœºå™¨äººæŽ§åˆ¶ç³»ç»Ÿ"));
 
 	// Initialize Fonts
 	m_fontTitle.CreateFont(36, 0, 0, 0, FW_BOLD, FALSE, FALSE, 0, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, _T("Segoe UI"));
@@ -324,6 +829,14 @@ BOOL CSRDlg::OnInitDialog()
 		}
 	}
 
+	m_btnClearChart.Create(_T("æ¸…é™¤æ›²çº¿"), WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | BS_PUSHBUTTON,
+		CRect(0, 0, 0, 0), this, IDC_BUTTON_CLEAR_CHART);
+	m_btnClearChart.SetFont(&m_fontSidebarBtn);
+
+	m_btnSensorZero.Create(_T("ä¼ æ„Ÿå™¨è°ƒé›¶"), WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | BS_PUSHBUTTON,
+		CRect(0, 0, 0, 0), this, IDC_BUTTON_SENSOR_ZERO);
+	m_btnSensorZero.SetFont(&m_fontSidebarBtn);
+
 	// Create Switch Button
 	m_btnMotorSwitch.Create(_T(""), WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, CRect(0, 0, 0, 0), this, 20001);
 	m_btnMotorSwitch.SetPngResources(IDR_PNG_SWITCH_OFF, IDR_PNG_SWITCH_ON);
@@ -338,11 +851,17 @@ BOOL CSRDlg::OnInitDialog()
 	m_btnSensorSwitch.SetPngResources(IDR_PNG_SWITCH_OFF, IDR_PNG_SWITCH_ON);
 	m_btnSensorSwitch.SetBackgroundColor(m_clrSideCardBg);
 
+	// Create serial-port combo box. The actual position is set in LayoutUI().
+	g_comboSensorPort.Create(WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+		CRect(0, 0, 0, 0), this, IDC_COMBO_SENSOR_PORT);
+	g_comboSensorPort.SetFont(&m_fontSidebarBtn);
+	PopulateSensorPortCombo(10);
+
 	// Create Sensor Label
-	m_lblSensor.Create(_T("´«¸ÐÆ÷:"), WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE, CRect(0, 0, 0, 0), this);
+	m_lblSensor.Create(_T("ä¼ æ„Ÿå™¨:"), WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE, CRect(0, 0, 0, 0), this);
 
 	// Copy font from "End Force" label to ensure exact match
-	CWnd* pEndForce = FindStaticByText(_T("Ä©¶ËÁ¦:"));
+	CWnd* pEndForce = FindStaticByText(_T("æœ«ç«¯åŠ›:"));
 	if (pEndForce) {
 		m_lblSensor.SetFont(pEndForce->GetFont());
 	}
@@ -355,9 +874,9 @@ BOOL CSRDlg::OnInitDialog()
 	m_editSensorData.SetFont(&m_fontLabel); // Or fontMain? Others use fontLabel for values? No, others use Default? 
 	// Wait, in OnInitDialog, the others don't get SetFont(&m_fontLabel). They get dialog default. 
 	// But Edit controls might need it. Let's stick to fontLabel for values or fontMain. 
-	// The prompt was about the LABEL "´«¸ÐÆ÷". Values are fine.
+	// The prompt was about the LABEL "ä¼ æ„Ÿå™¨". Values are fine.
 	// Actually, the previous code for edit used `m_fontLabel`. 
-	// "Ö÷ÊÖÎ»×Ë" labels use `m_fontMain` (default). 
+	// "ä¸»æ‰‹ä½å§¿" labels use `m_fontMain` (default). 
 	// So `m_lblSensor.SetFont(&m_fontMain)` is correct.
 
 	// Remove Border from Sensor Edit
@@ -365,7 +884,16 @@ BOOL CSRDlg::OnInitDialog()
 	m_editSensorData.ModifyStyleEx(WS_EX_CLIENTEDGE, 0, SWP_DRAWFRAME);
 
 	// Hide old GroupBoxes and Titles
-	const TCHAR* gbTitles[] = { _T("µç»ú¿ØÖÆ"), _T("Ö÷ÊÖ¿ØÖÆ"), _T("ÉãÏñÍ·»­Ãæ"), _T("¿ØÖÆ²ÎÊý"), _T("Ä©¶ËÁ¦ÊµÊ±ÇúÏß"), _T("Motor"), _T("Haptic"), _T("Camera View"), _T("Master Param"), _T("Robot Param"), _T("Force Feedback (N)"), NULL };
+	// Use only ASCII strings here to avoid code-page build errors.
+	const TCHAR* gbTitles[] = {
+		_T("Motor"),
+		_T("Haptic"),
+		_T("Camera View"),
+		_T("Master Param"),
+		_T("Robot Param"),
+		_T("Force Feedback (N)"),
+		NULL
+	};
 	for (int i = 0; gbTitles[i]; ++i) {
 		CWnd* pWnd = FindStaticByText(gbTitles[i]);
 		if (pWnd) pWnd->ShowWindow(SW_HIDE);
@@ -402,16 +930,32 @@ BOOL CSRDlg::OnInitDialog()
 
 	m_editMotorStatus.SetWindowText(_T("Disconnected"));
 	m_editHapticStatus.SetWindowText(_T("Disconnected"));
+	if (m_pBridgeServer && !m_pBridgeServer->Start(8765))
+	{
+		AfxMessageBox(_T("Python bridge TCP server failed to start on 127.0.0.1:8765"));
+	}
 
 	// Camera Init
-	if (!m_camera.open(0, cv::CAP_DSHOW)) m_camera.open(1, cv::CAP_DSHOW);
+	// Camera Init
+	if (!m_camera.open(1, cv::CAP_DSHOW))
+	{
+		m_camera.open(0, cv::CAP_DSHOW);
+	}
+
 	if (m_camera.isOpened())
 	{
-		m_camera.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
 		m_camera.set(cv::CAP_PROP_FRAME_WIDTH, 640);
 		m_camera.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
 		m_camera.set(cv::CAP_PROP_CONVERT_RGB, 1);
+
+		// å¦‚æžœç”»é¢ä»ç„¶ç°ç™½ï¼Œå†å°è¯•æ‰“å¼€è¿™ä¸€å¥
+		// m_camera.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
 	}
+	else
+	{
+		AfxMessageBox(_T("Camera open failed!"));
+	}
+
 	SetTimer(2, 50, NULL);
 
 	// Chart Init
@@ -435,32 +979,16 @@ BOOL CSRDlg::OnInitDialog()
 		pBottomAxis->SetTextColor(m_clrSubText);
 		pBottomAxis->GetLabel()->SetText(_T("Time (s)"));
 		pBottomAxis->GetGrid()->SetVisible(true);
-		pBottomAxis->GetGrid()->SetColor(RGB(200, 200, 200));
+		pBottomAxis->GetGrid()->SetColor(RGB(100, 110, 120));
 
 		CChartStandardAxis* pLeftAxis = m_ChartCtrl.CreateStandardAxis(CChartCtrl::LeftAxis);
 		pLeftAxis->SetAutomaticMode(CChartAxis::FullAutomatic);
 		pLeftAxis->SetTextColor(m_clrSubText);
-		pLeftAxis->GetLabel()->SetText(_T("Position (mm/rel)")); // Changed label
+		pLeftAxis->GetLabel()->SetText(_T("Sensor signal"));
 		pLeftAxis->GetGrid()->SetVisible(true);
-		pLeftAxis->GetGrid()->SetColor(RGB(200, 200, 200));
+		pLeftAxis->GetGrid()->SetColor(RGB(100, 110, 120));
 
-		// Fx (Position X): Blue
-		m_pLineSeries[0] = m_ChartCtrl.CreateLineSerie();
-		m_pLineSeries[0]->SetColor(RGB(11, 92, 173));
-		m_pLineSeries[0]->SetWidth(2);
-		m_pLineSeries[0]->SetName(_T("Px (Fx)"));
-
-		// Fy (Position Y): Green
-		m_pLineSeries[1] = m_ChartCtrl.CreateLineSerie();
-		m_pLineSeries[1]->SetColor(RGB(46, 204, 113));
-		m_pLineSeries[1]->SetWidth(2);
-		m_pLineSeries[1]->SetName(_T("Py (Fy)"));
-
-		// Fz (Position Z): Orange
-		m_pLineSeries[2] = m_ChartCtrl.CreateLineSerie();
-		m_pLineSeries[2]->SetColor(RGB(245, 165, 36));
-		m_pLineSeries[2]->SetWidth(2);
-		m_pLineSeries[2]->SetName(_T("Pz (Fz)"));
+		CreateSensorChartSeries();
 	}
 
 	// Initial Window Size (1200x850) and Center
@@ -470,6 +998,26 @@ BOOL CSRDlg::OnInitDialog()
 	LayoutUI();
 
 	return TRUE;
+}
+
+BOOL CSRDlg::PreTranslateMessage(MSG* pMsg)
+{
+	if (pMsg->message == WM_KEYDOWN)
+	{
+		if (pMsg->wParam == VK_F11)
+		{
+			ToggleFullscreen();
+			return TRUE;
+		}
+
+		if (pMsg->wParam == VK_ESCAPE && m_bFullscreen)
+		{
+			SetFullscreen(false);
+			return TRUE;
+		}
+	}
+
+	return CDialogEx::PreTranslateMessage(pMsg);
 }
 
 void CSRDlg::OnSysCommand(UINT nID, LPARAM lParam)
@@ -492,7 +1040,148 @@ void CSRDlg::OnSysCommand(UINT nID, LPARAM lParam)
 void CSRDlg::OnSize(UINT nType, int cx, int cy)
 {
 	CDialogEx::OnSize(nType, cx, cy);
-	if (GetSafeHwnd()) LayoutUI();
+	if (GetSafeHwnd())
+	{
+		if (nType != SIZE_MINIMIZED)
+		{
+			m_bFullscreen = IsZoomed() != FALSE;
+			UpdateFullscreenButtonText();
+		}
+		LayoutUI();
+	}
+}
+
+void CSRDlg::UpdateFullscreenButtonText()
+{
+}
+
+void CSRDlg::ToggleFullscreen()
+{
+	SetFullscreen(!m_bFullscreen);
+}
+
+void CSRDlg::SetFullscreen(bool fullscreen)
+{
+	if (!GetSafeHwnd() || fullscreen == m_bFullscreen) return;
+
+	if (fullscreen)
+	{
+		m_bFullscreen = true;
+		ShowWindow(SW_MAXIMIZE);
+	}
+	else
+	{
+		m_bFullscreen = false;
+		ShowWindow(SW_RESTORE);
+	}
+
+	UpdateFullscreenButtonText();
+	LayoutUI();
+}
+
+void CSRDlg::CreateSensorChartSeries()
+{
+	if (!m_ChartCtrl.GetSafeHwnd()) return;
+
+	// Fx: blue
+	m_pLineSeries[0] = m_ChartCtrl.CreateLineSerie();
+	m_pLineSeries[0]->SetColor(RGB(11, 92, 173));
+	m_pLineSeries[0]->SetWidth(2);
+	m_pLineSeries[0]->SetName(_T("Fx"));
+
+	// Fy: green
+	m_pLineSeries[1] = m_ChartCtrl.CreateLineSerie();
+	m_pLineSeries[1]->SetColor(RGB(46, 204, 113));
+	m_pLineSeries[1]->SetWidth(2);
+	m_pLineSeries[1]->SetName(_T("Fy"));
+
+	// Fz: orange
+	m_pLineSeries[2] = m_ChartCtrl.CreateLineSerie();
+	m_pLineSeries[2]->SetColor(RGB(245, 165, 36));
+	m_pLineSeries[2]->SetWidth(2);
+	m_pLineSeries[2]->SetName(_T("Fz"));
+}
+
+void CSRDlg::ClearSensorChart()
+{
+	{
+		std::lock_guard<std::mutex> lock(g_sensorMutex);
+		g_sensorPlotPoints.clear();
+	}
+
+	if (m_ChartCtrl.GetSafeHwnd())
+	{
+		m_ChartCtrl.RemoveAllSeries();
+		CreateSensorChartSeries();
+		m_ChartCtrl.GetBottomAxis()->SetMinMax(0, 20);
+		m_ChartCtrl.GetLeftAxis()->SetMinMax(-1, 1);
+		m_ChartCtrl.Invalidate(FALSE);
+		m_ChartCtrl.UpdateWindow();
+	}
+}
+
+void CSRDlg::ZeroSensorBaseline()
+{
+	double rawFx = 0.0, rawFy = 0.0, rawFz = 0.0;
+	double zeroFx = 0.0, zeroFy = 0.0, zeroFz = 0.0;
+	double adjFx = 0.0, adjFy = 0.0, adjFz = 0.0;
+	int sampleCount = 0;
+	{
+		std::lock_guard<std::mutex> lock(g_sensorMutex);
+		double latestT = g_sensorRawSamples.empty() ? 0.0 : g_sensorRawSamples.back().t;
+		const double sampleWindow = 1.0;
+
+		for (const SensorPlotPoint& p : g_sensorRawSamples)
+		{
+			if (latestT - p.t <= sampleWindow)
+			{
+				rawFx += p.fx;
+				rawFy += p.fy;
+				rawFz += p.fz;
+				++sampleCount;
+			}
+		}
+
+		if (sampleCount > 0)
+		{
+			rawFx /= sampleCount;
+			rawFy /= sampleCount;
+			rawFz /= sampleCount;
+		}
+		else
+		{
+			rawFx = g_sensorRawValues[1];
+			rawFy = g_sensorRawValues[2];
+			rawFz = g_sensorRawValues[3];
+		}
+
+		zeroFx = ClampSensorZeroOffset(rawFx);
+		zeroFy = ClampSensorZeroOffset(rawFy);
+		zeroFz = ClampSensorZeroOffset(rawFz);
+
+		g_sensorZeroValues[1] = zeroFx;
+		g_sensorZeroValues[2] = zeroFy;
+		g_sensorZeroValues[3] = zeroFz;
+
+		adjFx = rawFx - zeroFx;
+		adjFy = rawFy - zeroFy;
+		adjFz = rawFz - zeroFz;
+
+		if (std::abs(adjFx) < kSensorDeadband) adjFx = 0.0;
+		if (std::abs(adjFy) < kSensorDeadband) adjFy = 0.0;
+		if (std::abs(adjFz) < kSensorDeadband) adjFz = 0.0;
+
+		g_sensorValues[1] = adjFx;
+		g_sensorValues[2] = adjFy;
+		g_sensorValues[3] = adjFz;
+		g_sensorZeroed = true;
+	}
+
+	CString msg;
+	msg.Format(_T("å·²è°ƒé›¶(%d): Zero Fx %.3f  Fy %.3f  Fz %.3f"), sampleCount, zeroFx, zeroFy, zeroFz);
+	m_editSensorData.SetWindowText(msg);
+	msg.Format(_T("Fx: %.3f N  Fy: %.3f N  Fz: %.3f N"), adjFx, adjFy, adjFz);
+	m_editMasterForce.SetWindowText(msg);
 }
 
 CWnd* CSRDlg::FindStaticByText(const CString& text)
@@ -576,13 +1265,32 @@ void CSRDlg::LayoutUI()
 
 	// Sensor Control Card
 	y = m_rectCardHaptic.bottom + kCardGap;
-	int sensorH = hapticH; // Same height
+	int toolBtnH = 30;
+	int sensorH = titleH + pad + 24 + 6 + switchBtnH + 10 + toolBtnH * 2 + 8 + pad; // COM combo + sensor switch + tools
 	m_rectCardSensor.SetRect(x, y, x + cardW, y + sensorH);
+
+	if (g_comboSensorPort.GetSafeHwnd()) {
+		int comboX = m_rectCardSensor.left + 12;
+		int comboY = m_rectCardSensor.top + titleH + pad;
+		int comboW = m_rectCardSensor.Width() - 24;
+		// Height includes the drop-down list area for CBS_DROPDOWNLIST.
+		g_comboSensorPort.SetWindowPos(NULL, comboX, comboY, comboW, 160, SWP_NOZORDER);
+	}
 
 	if (m_btnSensorSwitch.GetSafeHwnd()) {
 		int switchX = m_rectCardSensor.right - 12 - switchBtnW;
-		int switchY = m_rectCardSensor.top + titleH + pad;
+		int switchY = m_rectCardSensor.top + titleH + pad + 24 + 6;
 		m_btnSensorSwitch.SetWindowPos(NULL, switchX, switchY, switchBtnW, switchBtnH, SWP_NOZORDER);
+	}
+
+	int toolX = m_rectCardSensor.left + 12;
+	int toolY = m_rectCardSensor.top + titleH + pad + 24 + 6 + switchBtnH + 10;
+	int toolW = m_rectCardSensor.Width() - 24;
+	if (m_btnClearChart.GetSafeHwnd()) {
+		m_btnClearChart.SetWindowPos(NULL, toolX, toolY, toolW, toolBtnH, SWP_NOZORDER);
+	}
+	if (m_btnSensorZero.GetSafeHwnd()) {
+		m_btnSensorZero.SetWindowPos(NULL, toolX, toolY + toolBtnH + 8, toolW, toolBtnH, SWP_NOZORDER);
 	}
 
 	// Exit Button
@@ -610,7 +1318,8 @@ void CSRDlg::LayoutUI()
 
 	// Move Camera
 	if (m_picCamera.GetSafeHwnd()) {
-		m_picCamera.SetWindowPos(NULL, m_rectCardCamera.left + 2, m_rectCardCamera.top + 2, m_rectCardCamera.Width() - 4, m_rectCardCamera.Height() - 4, SWP_NOZORDER);
+		int hdrH = 26;
+		m_picCamera.SetWindowPos(NULL, m_rectCardCamera.left + 2, m_rectCardCamera.top + hdrH + 2, m_rectCardCamera.Width() - 4, m_rectCardCamera.Height() - hdrH - 4, SWP_NOZORDER);
 	}
 
 	// Move Master Params
@@ -624,12 +1333,12 @@ void CSRDlg::LayoutUI()
 		int cy = startY;
 
 		// Hide Status Rows (Motor/Haptic Status)
-		CWnd* pMotorL = FindStaticByText(_T("µç»ú:"));
+		CWnd* pMotorL = FindStaticByText(_T("ç”µæœº:"));
 		if (pMotorL) pMotorL->ShowWindow(SW_HIDE);
 		CWnd* pMotorE = GetDlgItem(IDC_EDIT_MOTOR_STATUS);
 		if (pMotorE) pMotorE->ShowWindow(SW_HIDE);
 
-		CWnd* pHapticL = FindStaticByText(_T("Ö÷ÊÖ:"));
+		CWnd* pHapticL = FindStaticByText(_T("ä¸»æ‰‹:"));
 		if (pHapticL) pHapticL->ShowWindow(SW_HIDE);
 		CWnd* pHapticE = GetDlgItem(IDC_EDIT_HAPTIC_STATUS);
 		if (pHapticE) pHapticE->ShowWindow(SW_HIDE);
@@ -637,17 +1346,17 @@ void CSRDlg::LayoutUI()
 		struct Item { const TCHAR* l; UINT id; };
 		Item items[] = {
 			// Removed Status items from layout loop
-			{_T("Ö÷ÊÖÎ»×Ë:"), IDC_EDIT_MASTER_POS},
-			{_T("Ö÷ÊÖ±àÂë:"), IDC_EDIT_MASTER_ENC},
-			{_T("Ä©¶ËÁ¦:"), IDC_EDIT_MASTER_FORCE},
+			{_T("ä¸»æ‰‹ä½å§¿:"), IDC_EDIT_MASTER_POS},
+			{_T("ä¸»æ‰‹ç¼–ç :"), IDC_EDIT_MASTER_ENC},
+			{_T("æœ«ç«¯åŠ›:"), IDC_EDIT_MASTER_FORCE},
 			// New Sensor Data Row
-			{_T("´«¸ÐÆ÷:"), 20005}
+			{_T("ä¼ æ„Ÿå™¨:"), 20005}
 		};
 		for (auto& it : items) {
 			CWnd* pL = FindStaticByText(it.l);
-			if (!pL && _tcscmp(it.l, _T("Ö÷ÊÖ±àÂë:")) == 0) {
-				pL = FindStaticByText(_T("Ö÷ÊÖ±àÂëÆ÷:"));
-				if (pL) pL->SetWindowText(_T("Ö÷ÊÖ±àÂë:"));
+			if (!pL && _tcscmp(it.l, _T("ä¸»æ‰‹ç¼–ç :")) == 0) {
+				pL = FindStaticByText(_T("ä¸»æ‰‹ç¼–ç å™¨:"));
+				if (pL) pL->SetWindowText(_T("ä¸»æ‰‹ç¼–ç :"));
 			}
 
 			if (pL) {
@@ -686,10 +1395,10 @@ void CSRDlg::LayoutUI()
 
 		struct Item { const TCHAR* l; UINT id; };
 		Item items[] = {
-			{_T("¿Õ¼äÎ»×Ë:"), IDC_EDIT_POSE},
-			{_T("ÍäÇúµç»ú:"), IDC_EDIT_BEND},
-			{_T("¼ÐÇ¯½Ç¶È:"), IDC_EDIT_GRIP_ANGLE},
-			{_T("¼ÐÇ¯µç»ú:"), IDC_EDIT_GRIP_MOTOR}
+			{_T("ç©ºé—´ä½å§¿:"), IDC_EDIT_POSE},
+			{_T("å¼¯æ›²ç”µæœº:"), IDC_EDIT_BEND},
+			{_T("å¤¹é’³è§’åº¦:"), IDC_EDIT_GRIP_ANGLE},
+			{_T("å¤¹é’³ç”µæœº:"), IDC_EDIT_GRIP_MOTOR}
 		};
 		for (auto& it : items) {
 			CWnd* pL = FindStaticByText(it.l);
@@ -818,7 +1527,7 @@ void CSRDlg::OnPaint()
 		CFont* old = dc.SelectObject(&m_fontTitle);
 		dc.SetBkMode(TRANSPARENT);
 		dc.SetTextColor(m_clrHdrText);
-		dc.DrawText(_T("Ïû»¯µÀÊÖÊõ»úÆ÷ÈË¿ØÖÆÏµÍ³"), &headerRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+		dc.DrawText(_T("æ¶ˆåŒ–é“æ‰‹æœ¯æœºå™¨äººæŽ§åˆ¶ç³»ç»Ÿ"), &headerRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 		dc.SelectObject(old);
 
 		// 3. Sidebar Background (Just fill, no extra shadow)
@@ -847,7 +1556,7 @@ void CSRDlg::OnPaint()
 			dc.SetTextColor(m_clrSidebarText);
 			dc.SelectObject(&m_fontSidebarBtn);
 
-			// Unicode: ç”µæœºå¯åŠ¨
+			// Unicode: é¢åž«æº€éšîˆšå§©
 			dc.DrawText(L"\x7535\x673A\x542F\x52A8", &rcLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
 			dc.RestoreDC(nSavedDC); // Restore DC state
@@ -869,7 +1578,7 @@ void CSRDlg::OnPaint()
 			dc.SetTextColor(m_clrSidebarText);
 			dc.SelectObject(&m_fontSidebarBtn);
 
-			// "Master Start" = ä¸»æ‰‹å¯åŠ¨ = \u4E3B\u624B\u542F\u52A8
+			// "Master Start" = æ¶“ç»˜å¢œéšîˆšå§© = \u4E3B\u624B\u542F\u52A8
 			dc.DrawText(L"\x4E3B\x624B\x542F\x52A8", &rcLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
 			dc.RestoreDC(nSavedDC);
@@ -880,8 +1589,9 @@ void CSRDlg::OnPaint()
 			DrawCardWithTitle(dc, m_rectCardSensor, kRadius, _T("Sensor Control"), m_clrSideCardTitle, m_clrSideCardBg, m_clrSideCardBorder, m_clrSidebarText);
 
 			int nSavedDC = dc.SaveDC();
+
 			CRect rcLabel = m_rectCardSensor;
-			rcLabel.top += 34;
+			rcLabel.top += 34 + 24 + 6;
 			rcLabel.bottom = rcLabel.top + 46;
 			rcLabel.left += 12;
 			rcLabel.right -= 100;
@@ -890,25 +1600,24 @@ void CSRDlg::OnPaint()
 			dc.SetTextColor(m_clrSidebarText);
 			dc.SelectObject(&m_fontSidebarBtn);
 
-			// "Sensor" = ´«¸ÐÆ÷
-			dc.DrawText(_T("´«¸ÐÆ÷"), &rcLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+			// "Sensor" = ä¼ æ„Ÿå™¨
+			dc.DrawText(_T("ä¼ æ„Ÿå™¨"), &rcLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
 			dc.RestoreDC(nSavedDC);
 		}
 
-		// 5. Main Cards (White)
-		if (!m_rectCardCamera.IsRectEmpty()) DrawShadowedCard(dc, m_rectCardCamera, kRadius, m_clrMainCardBg, m_clrMainCardBorder);
+		// 5. Main Cards (Dark Theme with Titles)
+		if (!m_rectCardCamera.IsRectEmpty()) {
+			DrawCardWithTitle(dc, m_rectCardCamera, kRadius, _T("Camera View"), m_clrSideCardTitle, m_clrMainCardBg, m_clrMainCardBorder, m_clrMainText);
+		}
 		if (!m_rectCardMaster.IsRectEmpty()) {
-			DrawShadowedCard(dc, m_rectCardMaster, kRadius, m_clrMainCardBg, m_clrMainCardBorder);
-			DrawMainCardTitle(dc, m_rectCardMaster, _T("Master Param"));
+			DrawCardWithTitle(dc, m_rectCardMaster, kRadius, _T("Master Param"), m_clrSideCardTitle, m_clrMainCardBg, m_clrMainCardBorder, m_clrMainText);
 		}
 		if (!m_rectCardRobot.IsRectEmpty()) {
-			DrawShadowedCard(dc, m_rectCardRobot, kRadius, m_clrMainCardBg, m_clrMainCardBorder);
-			DrawMainCardTitle(dc, m_rectCardRobot, _T("Robot Param"));
+			DrawCardWithTitle(dc, m_rectCardRobot, kRadius, _T("Robot Param"), m_clrSideCardTitle, m_clrMainCardBg, m_clrMainCardBorder, m_clrMainText);
 		}
 		if (!m_rectCardChart.IsRectEmpty()) {
-			DrawShadowedCard(dc, m_rectCardChart, kRadius, m_clrMainCardBg, m_clrMainCardBorder);
-			DrawMainCardTitle(dc, m_rectCardChart, _T("Force Feedback (N)"));
+			DrawCardWithTitle(dc, m_rectCardChart, kRadius, _T("Force Feedback (N)"), m_clrSideCardTitle, m_clrMainCardBg, m_clrMainCardBorder, m_clrMainText);
 		}
 	}
 }
@@ -916,6 +1625,57 @@ void CSRDlg::OnPaint()
 BOOL CSRDlg::OnEraseBkgnd(CDC* pDC)
 {
 	return TRUE;
+}
+
+void CSRDlg::OnDrawItem(int nIDCtl, LPDRAWITEMSTRUCT lpDrawItemStruct)
+{
+	if (nIDCtl == IDC_BUTTON_CLEAR_CHART || nIDCtl == IDC_BUTTON_SENSOR_ZERO)
+	{
+		CDC* pDC = CDC::FromHandle(lpDrawItemStruct->hDC);
+		CRect rc = lpDrawItemStruct->rcItem;
+		const bool pressed = (lpDrawItemStruct->itemState & ODS_SELECTED) != 0;
+		const bool disabled = (lpDrawItemStruct->itemState & ODS_DISABLED) != 0;
+		const bool focused = (lpDrawItemStruct->itemState & ODS_FOCUS) != 0;
+
+		const bool primary = nIDCtl == IDC_BUTTON_SENSOR_ZERO;
+		COLORREF accent = primary ? m_clrHdrLine : RGB(130, 145, 156);
+		COLORREF fill = pressed ? (primary ? RGB(0, 128, 148) : RGB(62, 76, 86)) : RGB(48, 60, 69);
+		COLORREF border = focused ? m_clrHdrLine : (primary ? RGB(0, 160, 178) : RGB(82, 100, 112));
+		COLORREF text = disabled ? RGB(120, 130, 138) : m_clrSidebarText;
+
+		pDC->FillSolidRect(&rc, m_clrSideCardBg);
+
+		CRect btn = rc;
+		btn.DeflateRect(1, 1);
+		CPen pen(PS_SOLID, 1, border);
+		CBrush brush(fill);
+		CPen* oldPen = pDC->SelectObject(&pen);
+		CBrush* oldBrush = pDC->SelectObject(&brush);
+		pDC->RoundRect(&btn, CPoint(8, 8));
+		pDC->SelectObject(oldBrush);
+		pDC->SelectObject(oldPen);
+
+		CRect accentRect = btn;
+		accentRect.right = accentRect.left + 4;
+		accentRect.DeflateRect(0, 7, 0, 7);
+		pDC->FillSolidRect(&accentRect, accent);
+
+		CString caption;
+		CWnd* pWnd = GetDlgItem(nIDCtl);
+		if (pWnd) pWnd->GetWindowText(caption);
+
+		pDC->SetBkMode(TRANSPARENT);
+		pDC->SetTextColor(text);
+		CFont* oldFont = pDC->SelectObject(&m_fontSidebarBtn);
+		if (pressed) btn.OffsetRect(1, 1);
+		CRect textRect = btn;
+		textRect.left += 10;
+		pDC->DrawText(caption, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+		pDC->SelectObject(oldFont);
+		return;
+	}
+
+	CDialogEx::OnDrawItem(nIDCtl, lpDrawItemStruct);
 }
 
 HBRUSH CSRDlg::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
@@ -970,8 +1730,8 @@ HBRUSH CSRDlg::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
 	if (nCtlColor == CTLCOLOR_EDIT || nCtlColor == CTLCOLOR_MSGBOX)
 	{
 		pDC->SetTextColor(m_clrMainText);
-		pDC->SetBkColor(RGB(255, 255, 255));
-		return (HBRUSH)GetStockObject(WHITE_BRUSH);
+		pDC->SetBkColor(m_clrMainCardBg);
+		return m_brushMainCardBg;
 	}
 
 	return CDialogEx::OnCtlColor(pDC, pWnd, nCtlColor);
@@ -985,6 +1745,16 @@ HCURSOR CSRDlg::OnQueryDragIcon()
 void CSRDlg::OnBnClickedOk()
 {
 	CDialogEx::OnOK();
+}
+
+void CSRDlg::OnClickedClearChart()
+{
+	ClearSensorChart();
+}
+
+void CSRDlg::OnClickedSensorZero()
+{
+	ZeroSensorBaseline();
 }
 
 // ==========================================================================
@@ -1108,6 +1878,7 @@ bool CSRDlg::StartHapticDevice()
 
 	dhdEnableForce(DHD_ON);
 	dhdEnableExpertMode();
+	dhdSetMaxGripperForce(kMaxGripperFeedbackForce);
 
 	done = 0;
 	SetTimer(1, 10, NULL);
@@ -1164,6 +1935,41 @@ void CSRDlg::OnClickedButtonShutH()
 
 void CSRDlg::OnTimer(UINT_PTR nIDEvent)
 {
+	if (m_pBridgeServer)
+	{
+		if (m_pBridgeServer->ConsumeStartExperiment())
+		{
+			motor_flag = TRUE;
+		}
+
+		if (m_pBridgeServer->ConsumeStopExperiment())
+		{
+			motor_flag = FALSE;
+			m_pBridgeServer->ForceZeroFeedback("experiment stopped");
+			dhdSetForceAndTorqueAndGripperForce(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+		}
+
+		if (m_pBridgeServer->ConsumeZeroOmega())
+		{
+			ZeroHapticDevice();
+		}
+
+		if (m_pBridgeServer->ConsumeEmergencyStop())
+		{
+			motor_flag = FALSE;
+			done = 1;
+			m_pBridgeServer->ForceZeroFeedback("emergency stop");
+			dhdSetForceAndTorqueAndGripperForce(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+			if (m_pMotorManager)
+			{
+				m_pMotorManager->DisableMotors();
+			}
+			maxon_state = FALSE;
+			m_editMotorStatus.SetWindowText(_T("Emergency stopped"));
+			m_editHapticStatus.SetWindowText(_T("Emergency stopped"));
+		}
+	}
+
 	if (nIDEvent == 3) // Motor Sequence Logic
 	{
 		// 1: STARTING (Wait Start success -> Trigger Speed)
@@ -1224,21 +2030,185 @@ void CSRDlg::OnTimer(UINT_PTR nIDEvent)
 	{
 		if (m_camera.isOpened())
 		{
-			m_camera >> m_cameraFrame;
-			if (!m_cameraFrame.empty())
+			cv::Mat frame;
+
+			if (!m_camera.read(frame) || frame.empty())
 			{
-				// Ensure BGR
-				if (m_cameraFrame.channels() == 1)
+				return;
+			}
+
+			cv::Mat bgrFrame;
+
+			if (frame.channels() == 1)
+			{
+				cv::cvtColor(frame, bgrFrame, cv::COLOR_GRAY2BGR);
+			}
+			else if (frame.channels() == 2)
+			{
+				// External USB cameras may output YUY2/YUYV
+				cv::cvtColor(frame, bgrFrame, cv::COLOR_YUV2BGR_YUY2);
+			}
+			else if (frame.channels() == 3)
+			{
+				bgrFrame = frame;
+			}
+			else if (frame.channels() == 4)
+			{
+				cv::cvtColor(frame, bgrFrame, cv::COLOR_BGRA2BGR);
+			}
+			else
+			{
+				return;
+			}
+
+			DrawMatToPic(bgrFrame, m_picCamera);
+		}
+	}
+
+
+	if (nIDEvent == 4)
+	{
+		// Sensor display and force-curve drawing are independent of the haptic device.
+		// As long as the sensor switch is ON and one valid serial frame is received,
+		// Fx/Fy/Fz will be parsed, displayed, and appended to the chart.
+		if (m_nSensorSwitchState != 1)
+		{
+			CDialogEx::OnTimer(nIDEvent);
+			return;
+		}
+
+		CString str;
+		{
+			std::lock_guard<std::mutex> lock(g_sensorMutex);
+			str = g_sensorRawString;
+		}
+
+		double fxVal = 0.0, fyVal = 0.0, fzVal = 0.0;
+		bool parsed = false;
+
+		if (!str.IsEmpty())
+		{
+			m_editSensorData.SetWindowText(str);
+
+			parsed = ParseSensorLineToFxFyFz(str, fxVal, fyVal, fzVal);
+			if (!parsed)
+			{
+				parsed = ParseNumericSensorFrame(str, fxVal, fyVal, fzVal);
+			}
+
+			if (parsed)
+			{
+				std::lock_guard<std::mutex> lock(g_sensorMutex);
+				g_sensorRawValues[1] = fxVal;
+				g_sensorRawValues[2] = fyVal;
+				g_sensorRawValues[3] = fzVal;
+
+				double sampleTime = dhdGetTime() - m_dStartTime;
+				g_sensorRawSamples.push_back({ sampleTime, fxVal, fyVal, fzVal });
+				while (!g_sensorRawSamples.empty() && sampleTime - g_sensorRawSamples.front().t > 3.0)
 				{
-					cv::cvtColor(m_cameraFrame, m_cameraFrame, cv::COLOR_GRAY2BGR);
+					g_sensorRawSamples.pop_front();
 				}
-				else if (m_cameraFrame.channels() == 4)
-				{
-					cv::cvtColor(m_cameraFrame, m_cameraFrame, cv::COLOR_BGRA2BGR);
-				}
-				DrawMatToPic(m_cameraFrame, m_picCamera);
+
+				double adjFx = fxVal - g_sensorZeroValues[1];
+				double adjFy = fyVal - g_sensorZeroValues[2];
+				double adjFz = fzVal - g_sensorZeroValues[3];
+
+				if (std::abs(adjFx) < kSensorDeadband) adjFx = 0.0;
+				if (std::abs(adjFy) < kSensorDeadband) adjFy = 0.0;
+				if (std::abs(adjFz) < kSensorDeadband) adjFz = 0.0;
+
+				g_sensorValues[1] = adjFx;
+				g_sensorValues[2] = adjFy;
+				g_sensorValues[3] = adjFz;
 			}
 		}
+
+		// Use the latest successfully parsed force values for both display and plotting.
+		// If the current raw frame is incomplete, the chart will keep the last valid force value
+		// instead of being overwritten by 0.
+		{
+			std::lock_guard<std::mutex> lock(g_sensorMutex);
+			fxVal = g_sensorValues[1];
+			fyVal = g_sensorValues[2];
+			fzVal = g_sensorValues[3];
+		}
+
+		if (m_ChartCtrl.GetSafeHwnd() &&
+			m_pLineSeries[0] != nullptr &&
+			m_pLineSeries[1] != nullptr &&
+			m_pLineSeries[2] != nullptr)
+		{
+			double plotTime = dhdGetTime() - m_dStartTime;
+
+			// IMPORTANT: draw the parsed serial forces, not the haptic force.
+			m_pLineSeries[0]->AddPoint(plotTime, fxVal);
+			m_pLineSeries[1]->AddPoint(plotTime, fyVal);
+			m_pLineSeries[2]->AddPoint(plotTime, fzVal);
+
+			double minT = (plotTime > 20.0) ? (plotTime - 20.0) : 0.0;
+			double maxT = (plotTime > 20.0) ? plotTime : 20.0;
+			m_ChartCtrl.GetBottomAxis()->SetMinMax(minT, maxT);
+
+			double minF = 0.0;
+			double maxF = 0.0;
+			{
+				std::lock_guard<std::mutex> lock(g_sensorMutex);
+				g_sensorPlotPoints.push_back({ plotTime, fxVal, fyVal, fzVal });
+				while (!g_sensorPlotPoints.empty() && g_sensorPlotPoints.front().t < minT)
+				{
+					g_sensorPlotPoints.pop_front();
+				}
+
+				bool hasPoint = false;
+				for (const SensorPlotPoint& p : g_sensorPlotPoints)
+				{
+					if (!hasPoint)
+					{
+						minF = std::min(p.fx, std::min(p.fy, p.fz));
+						maxF = std::max(p.fx, std::max(p.fy, p.fz));
+						hasPoint = true;
+					}
+					else
+					{
+						minF = std::min(minF, std::min(p.fx, std::min(p.fy, p.fz)));
+						maxF = std::max(maxF, std::max(p.fx, std::max(p.fy, p.fz)));
+					}
+				}
+			}
+
+			// Manual Y-axis scaling over the visible history prevents old points from being clipped.
+			if (minF > 0.0) minF = 0.0;
+			if (maxF < 0.0) maxF = 0.0;
+			double span = maxF - minF;
+			if (span < 1.0)
+			{
+				minF -= 0.5;
+				maxF += 0.5;
+			}
+			else
+			{
+				double padF = span * 0.20;
+				minF -= padF;
+				maxF += padF;
+			}
+			m_ChartCtrl.GetLeftAxis()->SetMinMax(minF, maxF);
+
+			// Force repaint. Some ChartCtrl versions do not repaint immediately after AddPoint.
+			m_ChartCtrl.Invalidate(FALSE);
+			m_ChartCtrl.UpdateWindow();
+		}
+
+		CString strUI;
+		if (!str.IsEmpty() && !parsed)
+		{
+			strUI.Format(_T("Parse failed, last valid: Fx %.3f  Fy %.3f  Fz %.3f"), fxVal, fyVal, fzVal);
+		}
+		else
+		{
+			strUI.Format(_T("Fx: %.3f N  Fy: %.3f N  Fz: %.3f N"), fxVal, fyVal, fzVal);
+		}
+		m_editMasterForce.SetWindowText(strUI);
 	}
 
 	if (nIDEvent == 1 && !done)
@@ -1270,25 +2240,21 @@ void CSRDlg::OnTimer(UINT_PTR nIDEvent)
 			rel_pz = 0;
 		}
 
-		// 2. Plot Relative Position Data
-		if (m_ChartCtrl.GetSafeHwnd())
+		double gripperFeedback = 0.0;
+		if (m_pBridgeServer)
 		{
-			double plotTime = t1 - m_dStartTime;
-			m_pLineSeries[0]->AddPoint(plotTime, rel_px); // Plot X Deviation
-			m_pLineSeries[1]->AddPoint(plotTime, rel_py); // Plot Y Deviation
-			m_pLineSeries[2]->AddPoint(plotTime, rel_pz); // Plot Z Deviation
-
-			double minT = (plotTime > 20.0) ? (plotTime - 20.0) : 0.0;
-			double maxT = (plotTime > 20.0) ? plotTime : 20.0;
-			m_ChartCtrl.GetBottomAxis()->SetMinMax(minT, maxT);
+			gripperFeedback = m_pBridgeServer->NextFeedbackForControl(
+				kMaxGripperFeedbackForce,
+				0.25,
+				1000);
 		}
 
-		// Update Sensor Data
-		if (m_nSensorSwitchState == 1)
+		if (dhdSetForceAndTorqueAndGripperForce(
+			0.0, 0.0, 0.0,
+			0.0, 0.0, 0.0,
+			gripperFeedback) < DHD_NO_ERROR)
 		{
-			m_SensorManager.ProcessBuffer();
-			CString str = m_SensorManager.GetLastRawString();
-			m_editSensorData.SetWindowText(str);
+			done = 1;
 		}
 
 		if (dhdGetEnc(enc) < 0) {
@@ -1301,10 +2267,8 @@ void CSRDlg::OnTimer(UINT_PTR nIDEvent)
 		strUI.Format(_T("%d, %d, %d\r\n%d, %d, %d"), enc[0], enc[1], enc[2], enc[3], enc[4], enc[5]);
 		m_editMasterEnc.SetWindowText(strUI);
 
-		// 3. Update "End Force" Text to show Relative Position Data (matching the chart logic)
-		// TXDlg.cpp treated rel_px as the key "feedback" value.
-		strUI.Format(_T("Fx: %.3f  Fy: %.3f  Fz: %.3f"), rel_px, rel_py, rel_pz);
-		m_editMasterForce.SetWindowText(strUI);
+		// 5. Show sensor data as end-force/feedback data. Relative master position is still used below for robot motion control.
+		// Sensor display is updated by timer 4.
 
 		if (Ning)
 		{
@@ -1387,12 +2351,15 @@ void CSRDlg::OnTimer(UINT_PTR nIDEvent)
 
 			if (motor_flag && maxon_state)
 			{
+				maxon3_position = -qc;
 				m_pMotorManager->MoveToPosition(3, -qc, true, true);
 
 				long targetPos4 = (long)(3 * delta_L1);
+				maxon4_position = (int)targetPos4;
 				m_pMotorManager->MoveToPosition(4, targetPos4, true, true);
 
 				long targetPos5 = (long)(-(3 * delta_L2));
+				maxon5_position = (int)targetPos5;
 				m_pMotorManager->MoveToPosition(5, targetPos5, true, true);
 			}
 		}
@@ -1404,6 +2371,30 @@ void CSRDlg::OnTimer(UINT_PTR nIDEvent)
 			m_editGripAngle.SetWindowText(_T(""));
 			m_editGripMotor.SetWindowText(_T(""));
 		}
+
+		if (m_pBridgeServer)
+		{
+			BridgeTelemetry telemetry;
+			telemetry.timestamp = dhdGetTime() - m_dStartTime;
+			telemetry.omegaPx = px;
+			telemetry.omegaPy = py;
+			telemetry.omegaPz = pz;
+			telemetry.omegaFx = fx;
+			telemetry.omegaFy = fy;
+			telemetry.omegaFz = fz;
+			for (int i = 0; i < 7; ++i)
+			{
+				telemetry.omegaEnc[i] = enc[i];
+			}
+			telemetry.gripperFeedbackApplied = gripperFeedback;
+			telemetry.motorEnabled = (maxon_state == TRUE);
+			telemetry.motorTarget3 = maxon3_position;
+			telemetry.motorTarget4 = maxon4_position;
+			telemetry.motorTarget5 = maxon5_position;
+			telemetry.cppEmergencyStop = m_pBridgeServer->IsEmergencyStopLatched();
+			telemetry.cppWarning = m_pBridgeServer->GetLastWarning();
+			m_pBridgeServer->UpdateTelemetry(telemetry);
+		}
 	}
 
 	CDialogEx::OnTimer(nIDEvent);
@@ -1411,11 +2402,26 @@ void CSRDlg::OnTimer(UINT_PTR nIDEvent)
 
 void CSRDlg::OnDestroy()
 {
+	if (m_pBridgeServer)
+	{
+		m_pBridgeServer->ForceZeroFeedback("window closing");
+	}
+	dhdSetForceAndTorqueAndGripperForce(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+
 	KillTimer(1);
 	KillTimer(2);
 	KillTimer(3);
+	KillTimer(4);
+
+	StopSensorSerial();
 
 	if (m_camera.isOpened()) m_camera.release();
+
+	// Wait for the motor initialization thread before releasing m_pMotorManager.
+	if (m_workerThread.joinable())
+	{
+		m_workerThread.join();
+	}
 
 	// Safe Motor Cleanup
 	if (m_pMotorManager)
@@ -1426,6 +2432,13 @@ void CSRDlg::OnDestroy()
 	}
 
 	dhdClose();
+
+	if (m_pBridgeServer)
+	{
+		m_pBridgeServer->Stop();
+		delete m_pBridgeServer;
+		m_pBridgeServer = nullptr;
+	}
 
 	CDialogEx::OnDestroy();
 }
@@ -1500,28 +2513,47 @@ void CSRDlg::OnClickedSensorSwitch()
 {
 	if (m_nSensorSwitchState == 0)
 	{
-		// Try Auto Connect
-		if (m_SensorManager.AutoConnect())
+		// Re-scan when the user starts the sensor, while keeping the user's current choice if possible.
+		int preferredPort = GetSelectedSensorPort();
+		if (preferredPort <= 0) preferredPort = 10;
+		PopulateSensorPortCombo(preferredPort);
+
+		int portNumber = GetSelectedSensorPort();
+		CString statusText;
+		bool bConnected = StartSensorSerialByPort(portNumber, statusText);
+
+		if (bConnected)
 		{
 			m_nSensorSwitchState = 1;
 			m_btnSensorSwitch.SetSwitchState(CSwitchButton::SWITCH_ON);
+			m_editSensorData.SetWindowText(statusText);
+			g_comboSensorPort.EnableWindow(FALSE);
+			SetTimer(4, 20, NULL); // Sensor display timer, independent of haptic timer
 		}
 		else
 		{
-			// Failed
+			m_nSensorSwitchState = 0;
 			m_btnSensorSwitch.SetSwitchState(CSwitchButton::SWITCH_OFF);
-			AfxMessageBox(_T("No Sensor Found!"));
+			m_editSensorData.SetWindowText(statusText);
+			g_comboSensorPort.EnableWindow(TRUE);
+			AfxMessageBox(statusText);
 		}
 	}
 	else
 	{
-		m_SensorManager.Disconnect();
+		KillTimer(4);
+		StopSensorSerial();
 		m_nSensorSwitchState = 0;
 		m_btnSensorSwitch.SetSwitchState(CSwitchButton::SWITCH_OFF);
+		m_editSensorData.SetWindowText(_T("Sensor disconnected"));
+		g_comboSensorPort.EnableWindow(TRUE);
+		PopulateSensorPortCombo(10);
 	}
 }
 
 void CSRDlg::OnCommEvent()
 {
+	// Sensor data are read by the WinAPI serial thread.
+	// This handler is kept only for compatibility if the old MSComm control exists.
 	m_SensorManager.OnCommEvent();
 }

@@ -1,5 +1,6 @@
 #pragma once
 #include "MotorManager.h"
+#include "PythonBridgeServer.h"
 #include "dhdc.h"
 #include <vector>
 #include "ChartCtrl.h"
@@ -44,6 +45,8 @@ public:
 	// Chart
 	CChartCtrl m_ChartCtrl;
 	CChartLineSerie* m_pLineSeries[3];
+	CButton m_btnClearChart;
+	CButton m_btnSensorZero;
 
 	// Camera
 	cv::VideoCapture m_camera;
@@ -64,6 +67,12 @@ public:
 	CStatic m_lblSensor;    // Label for Sensor Data
 	CEdit m_editSensorData; // New edit for sensor display
 	CMSCOMM1 m_cmsComm; // The ActiveX control
+
+	// UI maximize state
+	bool m_bFullscreen = false;
+	DWORD m_dwWindowStyle = 0;
+	DWORD m_dwWindowExStyle = 0;
+	WINDOWPLACEMENT m_wpPrev = { sizeof(WINDOWPLACEMENT) };
 
 	// UI Customization Resources
 	CFont m_fontTitle;      // Header Title Font
@@ -114,6 +123,12 @@ public:
 	void DrawCardWithTitle(CDC& dc, CRect rc, int radius, CString title, COLORREF titleBg, COLORREF bodyBg, COLORREF border, COLORREF titleText);
 	void DrawMainCardTitle(CDC& dc, CRect rc, CString title); // New helper for Main cards
 	CWnd* FindStaticByText(const CString& text);
+	void SetFullscreen(bool fullscreen);
+	void ToggleFullscreen();
+	void UpdateFullscreenButtonText();
+	void CreateSensorChartSeries();
+	void ClearSensorChart();
+	void ZeroSensorBaseline();
 
 protected:
 	virtual void DoDataExchange(CDataExchange* pDX);
@@ -146,6 +161,7 @@ protected:
 	BOOL motor_flag = FALSE;
 
 	MotorManager* m_pMotorManager;
+	PythonBridgeServer* m_pBridgeServer;
 
 	int maxon5_position = 0, maxon4_position = 0, maxon3_position = 0, maxon2_position = 0, maxon1_position = 0;
 
@@ -156,12 +172,14 @@ protected:
 	HICON m_hIcon;
 
 	virtual BOOL OnInitDialog();
+	virtual BOOL PreTranslateMessage(MSG* pMsg);
 	afx_msg void OnSysCommand(UINT nID, LPARAM lParam);
 	afx_msg void OnPaint();
 	afx_msg BOOL OnEraseBkgnd(CDC* pDC);
 	afx_msg HCURSOR OnQueryDragIcon();
 	afx_msg void OnSize(UINT nType, int cx, int cy);
 	afx_msg void OnDestroy();
+	afx_msg void OnDrawItem(int nIDCtl, LPDRAWITEMSTRUCT lpDrawItemStruct);
 
 	// Add OnCtlColor for custom control coloring
 	afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);
@@ -191,6 +209,8 @@ public:
 	
 	// Sensor Switch Handler
 	afx_msg void OnClickedSensorSwitch();
+	afx_msg void OnClickedClearChart();
+	afx_msg void OnClickedSensorZero();
 	DECLARE_EVENTSINK_MAP() // For ActiveX Events
 	void OnCommEvent(); // Handler for MSComm
 

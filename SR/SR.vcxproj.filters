@@ -171,12 +171,18 @@
     <ClInclude Include="SensorManager.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="PythonBridgeServer.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="SR.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="SRDlg.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="PythonBridgeServer.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="pch.cpp">

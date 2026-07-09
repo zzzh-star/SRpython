@@ -33,6 +33,8 @@
 #define IDC_CARD_MASTER_BG              1023
 #define IDC_CARD_ROBOT_BG               1024
 #define IDC_CARD_FORCE_BG               1025
+#define IDC_BUTTON_CLEAR_CHART          1026
+#define IDC_BUTTON_SENSOR_ZERO          1027
 
 #define IDR_PNG_SWITCH_OFF              40001
 #define IDR_PNG_SWITCH_ON               40002
@@ -43,7 +45,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        130
 #define _APS_NEXT_COMMAND_VALUE         32771
-#define _APS_NEXT_CONTROL_VALUE         1026
+#define _APS_NEXT_CONTROL_VALUE         1028
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

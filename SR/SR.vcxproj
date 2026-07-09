@@ -118,11 +118,11 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_WINDOWS;_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>E:\visual_studio_project\opencv\build\include;E:\visual_studio_project\SR\eigen-3.4.0;E:\visual_studio_project\SR\ChartCtrl_source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>E:\visual_studio_project\developable\v1-1.4\opencv\build\include;E:\visual_studio_project\developable\v1-1.4\ChartCtrl_source;E:\visual_studio_project\developable\v1-1.4\eigen-3.4.0;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalLibraryDirectories>E:\visual_studio_project\opencv\build\x64\vc15\lib;E:\qi\OpenHaptics\OpenHaptics SDK\Quickhaptics\lib\x64\Debug;E:\qi\OpenHaptics\OpenHaptics SDK\utilities\lib\x64\Debug;E:\qi\OpenHaptics\OpenHaptics SDK\lib\x64\Debug;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>E:\visual_studio_project\developable\v1-1.4\opencv\build\x64\vc15\lib;E:\qi\OpenHaptics\OpenHaptics SDK\Quickhaptics\lib\x64\Debug;E:\qi\OpenHaptics\OpenHaptics SDK\utilities\lib\x64\Debug;E:\qi\OpenHaptics\OpenHaptics SDK\lib\x64\Debug;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>opencv_world454d.lib;hd.lib;hdu.lib;hl.lib;hlu.lib;hapticmouse.lib;snapconstraints.lib;Qh.lib;OgaTsTrans.lib;EposCmd.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <Midl>
@@ -232,6 +232,7 @@
     <ClInclude Include="MotorManager.h" />
     <ClInclude Include="OgaTsTrans.h" />
     <ClInclude Include="pch.h" />
+    <ClInclude Include="PythonBridgeServer.h" />
     <ClInclude Include="Resource.h" />
     <ClInclude Include="SensorManager.h" />
     <ClInclude Include="SR.h" />
@@ -274,6 +275,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="PythonBridgeServer.cpp" />
     <ClCompile Include="SensorManager.cpp" />
     <ClCompile Include="SR.cpp" />
     <ClCompile Include="SRDlg.cpp" />
