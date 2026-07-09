@@ -1,0 +1,338 @@
+
+===== session =====
+{
+  "time": "2026-07-09 16:25:16",
+  "config_path": "E:\\visual_studio_project\\developable\\v1-1.4\\python_app\\config\\hardware_config.json",
+  "python": "3.10.20 | packaged by Anaconda, Inc. | (main, Mar 11 2026, 17:42:35) [MSC v.1942 64 bit (AMD64)]",
+  "executable": "E:\\anaconda\\envs\\minist\\python.exe",
+  "platform": "Windows-10-10.0.19045-SP0",
+  "cwd": "E:\\visual_studio_project\\developable\\v1-1.4\\python_app"
+}
+
+===== config =====
+{
+  "simulation_mode": false,
+  "cpp_bridge": {
+    "host": "127.0.0.1",
+    "port": 8765,
+    "heartbeat_interval_ms": 300,
+    "timeout_ms": 1000
+  },
+  "force_sensor": {
+    "port": "COM5",
+    "baud": 115200,
+    "simulation": false,
+    "timeout_ms": 20,
+    "filter_alpha": 0.2,
+    "sim_cycle_s": 12.0,
+    "sim_noise_n": 0.0005
+  },
+  "grasp_state": {
+    "F_contact": 0.003,
+    "F_stable_low": 0.01,
+    "F_stable_high": 0.02,
+    "F_over_enter": 0.022,
+    "F_over_exit": 0.018,
+    "state_confirm_frames": 5,
+    "state_min_hold_ms": 100
+  },
+  "omega_feedback": {
+    "gain": 20.0,
+    "over_gain": 40.0,
+    "force_limit": 8.0,
+    "deadband": 0.05,
+    "send_rate_hz": 50
+  },
+  "sma": {
+    "port": "COM7",
+    "baud": 115200,
+    "simulation": false,
+    "timeout_ms": 100,
+    "channel": "L",
+    "alarm_temp": 43.0,
+    "temp_contact": 32.0,
+    "temp_stable": 34.0,
+    "temp_over": 37.0,
+    "cooling_time_ms": 1000,
+    "max_duty": 0.3,
+    "over_repeat_interval_ms": 1500,
+    "temperature_query_interval_ms": 1000
+  },
+  "logger": {
+    "save_dir": "data",
+    "auto_save": true
+  }
+}
+
+===== serial ports at startup =====
+[
+  {
+    "device": "COM14",
+    "description": "蓝牙链接上的标准串行 (COM14)",
+    "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0002\\7&BB0DE7&0&250213B69172_C00000000",
+    "manufacturer": "Microsoft",
+    "serial_number": null
+  },
+  {
+    "device": "COM4",
+    "description": "蓝牙链接上的标准串行 (COM4)",
+    "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0000\\7&BB0DE7&0&000000000000_00000000",
+    "manufacturer": "Microsoft",
+    "serial_number": null
+  },
+  {
+    "device": "COM11",
+    "description": "蓝牙链接上的标准串行 (COM11)",
+    "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0000\\7&BB0DE7&0&000000000000_00000001",
+    "manufacturer": "Microsoft",
+    "serial_number": null
+  },
+  {
+    "device": "COM7",
+    "description": "蓝牙链接上的标准串行 (COM7)",
+    "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0000\\7&BB0DE7&0&000000000000_00000002",
+    "manufacturer": "Microsoft",
+    "serial_number": null
+  },
+  {
+    "device": "COM13",
+    "description": "蓝牙链接上的标准串行 (COM13)",
+    "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0000\\7&BB0DE7&0&000000000000_00000003",
+    "manufacturer": "Microsoft",
+    "serial_number": null
+  },
+  {
+    "device": "COM3",
+    "description": "蓝牙链接上的标准串行 (COM3)",
+    "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0002\\7&BB0DE7&0&AD689487EDCC_C00000000",
+    "manufacturer": "Microsoft",
+    "serial_number": null
+  },
+  {
+    "device": "COM6",
+    "description": "蓝牙链接上的标准串行 (COM6)",
+    "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0002\\7&BB0DE7&0&250515B6C07C_C00000000",
+    "manufacturer": "Microsoft",
+    "serial_number": null
+  },
+  {
+    "device": "COM12",
+    "description": "蓝牙链接上的标准串行 (COM12)",
+    "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_VID&000105D6_PID&000A\\7&BB0DE7&0&1C52166DD534_C00000000",
+    "manufacturer": "Microsoft",
+    "serial_number": null
+  },
+  {
+    "device": "COM5",
+    "description": "通过蓝牙链接的标准调制解调器",
+    "hwid": "BTHENUM\\{00001103-0000-1000-8000-00805F9B34FB}_VID&0001001D_PID&1200\\7&BB0DE7&0&205D475FDD09_C00000000",
+    "manufacturer": "标准移动电话",
+    "serial_number": null
+  }
+]
+
+===== ui font =====
+{
+  "family": "Microsoft YaHei UI"
+}
+
+===== serial ports refreshed =====
+[
+  {
+    "device": "COM14",
+    "description": "蓝牙链接上的标准串行 (COM14)",
+    "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0002\\7&BB0DE7&0&250213B69172_C00000000",
+    "manufacturer": "Microsoft",
+    "serial_number": null
+  },
+  {
+    "device": "COM4",
+    "description": "蓝牙链接上的标准串行 (COM4)",
+    "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0000\\7&BB0DE7&0&000000000000_00000000",
+    "manufacturer": "Microsoft",
+    "serial_number": null
+  },
+  {
+    "device": "COM11",
+    "description": "蓝牙链接上的标准串行 (COM11)",
+    "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0000\\7&BB0DE7&0&000000000000_00000001",
+    "manufacturer": "Microsoft",
+    "serial_number": null
+  },
+  {
+    "device": "COM7",
+    "description": "蓝牙链接上的标准串行 (COM7)",
+    "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0000\\7&BB0DE7&0&000000000000_00000002",
+    "manufacturer": "Microsoft",
+    "serial_number": null
+  },
+  {
+    "device": "COM13",
+    "description": "蓝牙链接上的标准串行 (COM13)",
+    "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0000\\7&BB0DE7&0&000000000000_00000003",
+    "manufacturer": "Microsoft",
+    "serial_number": null
+  },
+  {
+    "device": "COM3",
+    "description": "蓝牙链接上的标准串行 (COM3)",
+    "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0002\\7&BB0DE7&0&AD689487EDCC_C00000000",
+    "manufacturer": "Microsoft",
+    "serial_number": null
+  },
+  {
+    "device": "COM6",
+    "description": "蓝牙链接上的标准串行 (COM6)",
+    "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0002\\7&BB0DE7&0&250515B6C07C_C00000000",
+    "manufacturer": "Microsoft",
+    "serial_number": null
+  },
+  {
+    "device": "COM12",
+    "description": "蓝牙链接上的标准串行 (COM12)",
+    "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_VID&000105D6_PID&000A\\7&BB0DE7&0&1C52166DD534_C00000000",
+    "manufacturer": "Microsoft",
+    "serial_number": null
+  },
+  {
+    "device": "COM5",
+    "description": "通过蓝牙链接的标准调制解调器",
+    "hwid": "BTHENUM\\{00001103-0000-1000-8000-00805F9B34FB}_VID&0001001D_PID&1200\\7&BB0DE7&0&205D475FDD09_C00000000",
+    "manufacturer": "标准移动电话",
+    "serial_number": null
+  }
+]
+16:25:23 Force sensor start failed: could not open port 'COM5': OSError(22, '信号灯超时时间已到', None, 121)
+16:25:23 Force sensor start failed: SerialException: could not open port 'COM5': OSError(22, '信号灯超时时间已到', None, 121)
+Traceback (most recent call last):
+  File "E:\visual_studio_project\developable\v1-1.4\python_app\src\ui_main.py", line 612, in _start_local_devices
+    self.sensor.start()
+  File "E:\visual_studio_project\developable\v1-1.4\python_app\src\force_sensor.py", line 61, in start
+    self._serial = serial.Serial(self.port, self.baud, timeout=self.timeout_s)
+  File "E:\anaconda\envs\minist\lib\site-packages\serial\serialwin32.py", line 33, in __init__
+    super(Serial, self).__init__(*args, **kwargs)
+  File "E:\anaconda\envs\minist\lib\site-packages\serial\serialutil.py", line 244, in __init__
+    self.open()
+  File "E:\anaconda\envs\minist\lib\site-packages\serial\serialwin32.py", line 64, in open
+    raise SerialException("could not open port {!r}: {!r}".format(self.portstr, ctypes.WinError()))
+serial.serialutil.SerialException: could not open port 'COM5': OSError(22, '信号灯超时时间已到', None, 121)
+16:25:25 SMA controller start failed: Write timeout
+16:25:25 SMA controller start failed: SerialTimeoutException: Write timeout
+Traceback (most recent call last):
+  File "E:\visual_studio_project\developable\v1-1.4\python_app\src\ui_main.py", line 621, in _start_local_devices
+    self.sma.start()
+  File "E:\visual_studio_project\developable\v1-1.4\python_app\src\sma_controller.py", line 38, in start
+    self.set_alarm_temp(float(self.config.get("alarm_temp", 43.0)))
+  File "E:\visual_studio_project\developable\v1-1.4\python_app\src\sma_controller.py", line 77, in set_alarm_temp
+    self._send(f"@A{alarm_temp:.0f}\n")
+  File "E:\visual_studio_project\developable\v1-1.4\python_app\src\sma_controller.py", line 106, in _send
+    self._serial.write(command.encode("ascii"))
+  File "E:\anaconda\envs\minist\lib\site-packages\serial\serialwin32.py", line 325, in write
+    raise SerialTimeoutException('Write timeout')
+serial.serialutil.SerialTimeoutException: Write timeout
+
+===== manual snapshot =====
+{
+  "time": "2026-07-09 16:26:25",
+  "config_path": "E:\\visual_studio_project\\developable\\v1-1.4\\python_app\\config\\hardware_config.json",
+  "cpp_connected": false,
+  "force_sensor_ok": false,
+  "force_sensor_selected_port": "COM5",
+  "sma_ok": false,
+  "sma_selected_port": "COM7",
+  "recording": false,
+  "sample_index": 1604,
+  "last_sma_command": "@A43",
+  "last_sma_response": "",
+  "recent_sma_responses": [],
+  "last_sma_temperature": 25.0,
+  "force_sensor_last_raw_frame": "",
+  "force_sensor_last_parse_ok": false,
+  "force_sensor_last_parse_error": "",
+  "serial_ports": [
+    {
+      "device": "COM14",
+      "description": "蓝牙链接上的标准串行 (COM14)",
+      "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0002\\7&BB0DE7&0&250213B69172_C00000000",
+      "manufacturer": "Microsoft",
+      "serial_number": null
+    },
+    {
+      "device": "COM4",
+      "description": "蓝牙链接上的标准串行 (COM4)",
+      "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0000\\7&BB0DE7&0&000000000000_00000000",
+      "manufacturer": "Microsoft",
+      "serial_number": null
+    },
+    {
+      "device": "COM11",
+      "description": "蓝牙链接上的标准串行 (COM11)",
+      "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0000\\7&BB0DE7&0&000000000000_00000001",
+      "manufacturer": "Microsoft",
+      "serial_number": null
+    },
+    {
+      "device": "COM7",
+      "description": "蓝牙链接上的标准串行 (COM7)",
+      "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0000\\7&BB0DE7&0&000000000000_00000002",
+      "manufacturer": "Microsoft",
+      "serial_number": null
+    },
+    {
+      "device": "COM13",
+      "description": "蓝牙链接上的标准串行 (COM13)",
+      "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0000\\7&BB0DE7&0&000000000000_00000003",
+      "manufacturer": "Microsoft",
+      "serial_number": null
+    },
+    {
+      "device": "COM3",
+      "description": "蓝牙链接上的标准串行 (COM3)",
+      "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0002\\7&BB0DE7&0&AD689487EDCC_C00000000",
+      "manufacturer": "Microsoft",
+      "serial_number": null
+    },
+    {
+      "device": "COM6",
+      "description": "蓝牙链接上的标准串行 (COM6)",
+      "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0002\\7&BB0DE7&0&250515B6C07C_C00000000",
+      "manufacturer": "Microsoft",
+      "serial_number": null
+    },
+    {
+      "device": "COM12",
+      "description": "蓝牙链接上的标准串行 (COM12)",
+      "hwid": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_VID&000105D6_PID&000A\\7&BB0DE7&0&1C52166DD534_C00000000",
+      "manufacturer": "Microsoft",
+      "serial_number": null
+    },
+    {
+      "device": "COM5",
+      "description": "通过蓝牙链接的标准调制解调器",
+      "hwid": "BTHENUM\\{00001103-0000-1000-8000-00805F9B34FB}_VID&0001001D_PID&1200\\7&BB0DE7&0&205D475FDD09_C00000000",
+      "manufacturer": "标准移动电话",
+      "serial_number": null
+    }
+  ],
+  "latest_cpp_telemetry": {},
+  "recent_cpp_messages": [],
+  "diagnostics_file": "E:\\visual_studio_project\\developable\\v1-1.4\\python_app\\diagnostics\\diagnostics_20260709_162516.txt",
+  "experiment_file": ""
+}
+16:26:25 Diagnostic snapshot saved. Path copied: E:\visual_studio_project\developable\v1-1.4\python_app\diagnostics\diagnostics_20260709_162516.txt
+
+===== unhandled exception =====
+Traceback (most recent call last):
+  File "E:\visual_studio_project\developable\v1-1.4\python_app\src\ui_main.py", line 907, in closeEvent
+    self.sma.close()
+  File "E:\visual_studio_project\developable\v1-1.4\python_app\src\sma_controller.py", line 42, in close
+    self.stop()
+  File "E:\visual_studio_project\developable\v1-1.4\python_app\src\sma_controller.py", line 70, in stop
+    self._send("@S\n")
+  File "E:\visual_studio_project\developable\v1-1.4\python_app\src\sma_controller.py", line 106, in _send
+    self._serial.write(command.encode("ascii"))
+  File "E:\anaconda\envs\minist\lib\site-packages\serial\serialwin32.py", line 325, in write
+    raise SerialTimeoutException('Write timeout')
+serial.serialutil.SerialTimeoutException: Write timeout
+
+16:26:26 Unhandled exception: Write timeout

@@ -1,0 +1,129 @@
+/* Base Application Styles */
+QMainWindow {
+    background-color: #F5F7FA;
+    font-family: "Segoe UI", Arial, sans-serif;
+}
+
+QWidget {
+    font-size: 14px;
+    color: #1F2937;
+}
+
+/* Group Boxes / Cards */
+QGroupBox {
+    background-color: #FFFFFF;
+    border: 1px solid #E5E7EB;
+    border-radius: 8px;
+    margin-top: 24px;
+    font-weight: bold;
+    color: #374151;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 8px;
+    background-color: transparent;
+}
+
+/* Inputs and Comboboxes */
+QLineEdit, QComboBox {
+    background-color: #F9FAFB;
+    border: 1px solid #D1D5DB;
+    border-radius: 4px;
+    padding: 6px 10px;
+    color: #1F2937;
+}
+
+QLineEdit:focus, QComboBox:focus {
+    border: 1px solid #2563EB;
+    outline: none;
+}
+
+/* Buttons */
+QPushButton {
+    background-color: #E5E7EB;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 16px;
+    color: #1F2937;
+    font-weight: bold;
+}
+
+QPushButton:hover {
+    background-color: #D1D5DB;
+}
+
+QPushButton:pressed {
+    background-color: #9CA3AF;
+}
+
+/* Primary Action Button (Connect) */
+QPushButton#btnConnect {
+    background-color: #2563EB;
+    color: #FFFFFF;
+}
+
+QPushButton#btnConnect:hover {
+    background-color: #1D4ED8;
+}
+
+/* Danger Action Button (Disconnect) */
+QPushButton#btnDisconnect {
+    background-color: #DC2626;
+    color: #FFFFFF;
+}
+
+QPushButton#btnDisconnect:hover {
+    background-color: #B91C1C;
+}
+
+/* Status Bar */
+QStatusBar {
+    background-color: #FFFFFF;
+    border-top: 1px solid #E5E7EB;
+    color: #6B7280;
+}
+
+/* Channel Value Labels */
+QLabel.channel-value {
+    font-size: 24px;
+    font-weight: bold;
+    background-color: #FFFFFF;
+    border: 1px solid #E5E7EB;
+    border-radius: 8px;
+    padding: 10px;
+}
+
+QLabel#valCh1 { color: #2563EB; }
+QLabel#valCh2 { color: #F97316; }
+QLabel#valCh3 { color: #10B981; }
+QLabel#valCh4 { color: #8B5CF6; }
+
+/* Headers */
+QLabel.header-title {
+    font-size: 24px;
+    font-weight: bold;
+    color: #111827;
+}
+
+QLabel.header-subtitle {
+    font-size: 14px;
+    color: #6B7280;
+}
+QSplitter::handle {
+    background-color: #0F172A;
+    border: none;
+}
+
+QSplitter::handle:vertical {
+    height: 4px;
+}
+
+QSplitter::handle:horizontal {
+    width: 4px;
+}
+
+QSplitter::handle:hover {
+    background-color: #334155;
+}

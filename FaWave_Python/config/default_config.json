@@ -1,0 +1,159 @@
+{
+    "device_ip": "192.168.1.82",
+    "device_port": 16008,
+    "local_ip": "192.168.1.81",
+    "local_port": 16008,
+    "communication_mode": "TCP",
+    "acquisition_mode": "real_device",
+    "request_interval_ms": 20,
+    "frame_length": 35,
+    "request_frame_hex": "5A A5 82 01 0D 00 00 00 00 00 00 FF FF",
+    "protocol": {
+        "header_hex": "5AA5",
+        "float_endian": "<",
+        "channels": 4,
+        "data_offset": 5,
+        "trailer_offset": 21
+    },
+    "ui": {
+        "refresh_rate_ms": 50,
+        "max_plot_points": 2000,
+        "theme": "dark",
+        "language": "zh_CN"
+    },
+    "mock": {
+        "force_demo_enabled": true,
+        "baseline_duration_s": 6.0,
+        "baseline_noise_v": 0.001,
+        "baseline_v": [
+            -1.844,
+            -1.842,
+            -1.845,
+            -1.846
+        ],
+        "dynamic_amplitude_v": [
+            0.08,
+            0.06,
+            0.05,
+            0.04
+        ],
+        "safety_alarm_demo_enabled": true,
+        "alarm_demo_start_s": 8.0,
+        "alarm_demo_period_s": 7.0
+    },
+    "storage": {
+        "flush_interval_s": 1.0,
+        "batch_size": 200,
+        "queue_max_points": 50000,
+        "auto_split_interval_s": 600,
+        "max_rows_per_file": 300000
+    },
+    "force_decoder": {
+        "enabled": true,
+        "algorithm": "python_force_decoder",
+        "input_unit": "V",
+        "input_scale_to_v": 1.0,
+        "startup_warmup_ms": 5000,
+        "matrix_order": "Fz_Fx_Fy",
+        "matrix": [
+            [
+                39.2375,
+                29.8622,
+                24.3702,
+                32.1236
+            ],
+            [
+                17.6342,
+                -0.177,
+                -20.266,
+                0.3688
+            ],
+            [
+                -7.9958,
+                19.9397,
+                -6.9973,
+                -17.1562
+            ]
+        ],
+        "calibration": {
+            "name": "default_4ch_force_matrix",
+            "version": "v1.0",
+            "date": "2026-05-20",
+            "description": "Python implementation of the original Keil force decoupling logic; input unit is V"
+        },
+        "filter": {
+            "input_ema_alpha": 0.03,
+            "force_ema_alpha_fz": 0.1,
+            "force_ema_alpha_fx": 0.15,
+            "force_ema_alpha_fy": 0.15,
+            "use_median3_filter": true
+        },
+        "baseline": {
+            "auto_update_enabled": true,
+            "baseline_smooth_alpha": 0.03,
+            "baseline_converge_th": 0.003,
+            "baseline_win": 30,
+            "baseline_range_th": 0.03,
+            "baseline_hold_ms": 1000,
+            "startup_range_th": 0.03
+        },
+        "deadzone": {
+            "fz": 1.0,
+            "fx": 0.5,
+            "fy": 0.5
+        },
+        "small_force_threshold": {
+            "fz": 4.0,
+            "fx": 3.5,
+            "fy": 3.5
+        }
+    },
+    "safety": {
+        "traction_mode": [
+            {
+                "event": "\u6ed1\u79fb\u62a5\u8b66",
+                "level": "Orange",
+                "threshold_v": 0.05,
+                "duration_ms": 100
+            },
+            {
+                "event": "\u6495\u88c2\u9884\u8b66",
+                "level": "Orange",
+                "threshold_v": 0.1,
+                "duration_ms": 50
+            },
+            {
+                "event": "\u8d85\u8f7d\u62a5\u8b66",
+                "level": "Red",
+                "threshold_v": 0.2,
+                "duration_ms": 100
+            }
+        ],
+        "shear_mode": [
+            {
+                "event": "\u8fdb\u9488\u6ed1\u79fb",
+                "level": "Orange",
+                "threshold_v": 0.05,
+                "duration_ms": 100
+            },
+            {
+                "event": "\u7a7f\u523a\u8d85\u8f7d",
+                "level": "Red",
+                "threshold_v": 0.2,
+                "duration_ms": 100
+            },
+            {
+                "event": "\u526a\u5207\u6495\u88c2",
+                "level": "Orange",
+                "threshold_v": 0.1,
+                "duration_ms": 50
+            },
+            {
+                "event": "\u8fc7\u7ebf\u8d85\u8f7d",
+                "level": "Red",
+                "threshold_v": 0.2,
+                "duration_ms": 100
+            }
+        ]
+    }
+}
